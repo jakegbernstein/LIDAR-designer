@@ -28,16 +28,16 @@ class LIDARoptics:
             self,
             # Lens Parameters
             f = 6 * U_('mm'), # focal distance of lens [millimeters]
-            N = 1, # f-stop of lens aperture
+            N = 1 * U_(''), # f-stop of lens aperture
             D_max = 10 * U_('m'), # maximum imaging distance specified
             D_min = 0.6 * U_('m'), # minimum imaging distance specified             
             # Illumination Parameters (Cree XLAMP XB-D)
             LED_lambda = 473 * U_('nm'), # wavelength of illumination
-            lumfn = .2, # luminosity function value at LED_lambda
+            lumfn = .2 * U_(''), # luminosity function value at LED_lambda
             LED_Vref = 3.1 * U_('volt'), # Input voltage at datasheet reference
             LED_Iref = 0.350 * U_('amp'), # Input current at datasheet reference
             LED_Poutref = 39.8 * U_('lumen'), # Optical power output at datasheet reference
-            albedo = 0.25, # reflectivity of cave wall                
+            albedo = 0.25 * U_(''), # reflectivity of cave wall                
             # Image Sensor Parameters (epc660)
             pixel_w = 20 * U_('um'), # width of pixel [microns]            
             array_size = [320, 240], # size of image array [pixels]
