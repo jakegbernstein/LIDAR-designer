@@ -9,6 +9,11 @@ Created on Wed Mar 29
 ### Import necessary modules    
 import sys
 import math
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
+import tkinter as tk
+from tkinter import ttk
 
 ### Have to be careful to only have one unit registry for pint
 if not (('pint' in locals()) or ('pint' in globals())):
@@ -191,6 +196,86 @@ class LIDARoptics:
         else:
             return self.pixelRes(D)
         
+class LIDARplotter(ttk.Frame):
+    param_names = ('f','N','nu')
+    def __init__(self,parent, lidar_optic):
+        ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
+        self.lidar = lidar_optic
+        self.initialize()
+        
+    def initialize(self):
+        self.grid(column = 0, row = 0)
+        # Set up three subframes
+        self.in_frame = ttk.Frame(self,borderwidth=1, relief='solid')
+        self.output_frame = ttk.Frame(self,borderwidth=1, relief='solid')
+        self.graph_frame = ttk.Frame(self,borderwidth=1, relief='solid')
+        self.in_frame.grid(column = 0, row = 0, sticky='n')
+        self.output_frame.grid(column = 1, row = 0, sticky ='n')
+        self.graph_frame.grid(column = 2, row = 0, sticky = 'nsew')
+        self.columnconfigure(2,weight=1)
+        self.rowconfigure(0,weight=1)
+        # Set up input parameter frame
+        in_title = ttk.Label(self.in_frame,text = 'Input Parameters')
+        in_title.grid(column = 0, row = 0, columnspan = 3)
+        i =0
+        self.entrywidgets = dict()
+        self.entryvars = dict()
+        for key in self.param_names:
+            i = i+1
+            self.entryvars[key] = tk.StringVar(self)
+            self.entryvars[key].set(getattr(self.lidar,key).magnitude)
+            templabel = ttk.Label(self.in_frame, text = key)
+            templabel.grid(column = 0, row = i)
+            templabel = ttk.Label(self.in_frame, text = str(getattr(self.lidar,key).units))
+            templabel.grid(column = 2, row = i)
+            #tempentry = ttk.Entry(in_frame, textvariable = getattr(lidar,params_in[i]))
+            #print(getattr(lidar,params_in[i]))
+            self.entrywidgets[key] = ttk.Entry(self.in_frame, textvariable = self.entryvars[key])
+            self.entrywidgets[key].grid(column = 1, row = i)
+        # Make buttons
+        self.updatebutton =  ttk.Button(self.in_frame, text = 'Update Design', command = self.update_design)
+        self.updatebutton.grid(column = 0, row = len(self.param_names)+1, columnspan = 2)        
+        # Set up output parameter frame
+        out_title = ttk.Label(self.output_frame, text = 'Design Output')
+        out_title.grid(column = 1, row = 0)
+        #Set up matplotlib figure
+        self.fig = plt.figure()
+        self.fig.suptitle('Graphs')
+        self.plot_latres = self.fig.add_subplot(2,1,1)
+        self.plot_bitres = self.fig.add_subplot(2,1,2)
+        #Import matplotlib figure to tk frame
+        self.graph_canvas = FigureCanvasTkAgg(self.fig,self.graph_frame)
+        self.graph_canvas.get_tk_widget().grid(column = 0, row = 0)
+        self.graph_canvas.draw
+        #self.resizable(True,False)
+        #self.update()
 
 
-
+    def update_design(self):
+        for key in self.param_names:
+            setattr(self.lidar, key, float(self.entryvars[key].get()) * getattr(self.lidar,key).units)
+            print(getattr(self.lidar,key))
+        
+class LIDARGUI(tk.Tk):    
+    def __init__(self, lidar_optic, *args, **kwargs):
+        tk.Tk.__init__(self, *args, **kwargs)
+        #tk.Tk.wm_title('LIDAR Design GUI')
+        
+        self.lidar_optic = lidar_optic
+        self.mainframe =  LIDARplotter(self,self.lidar_optic)
+        self.mainframe.grid(column=0, row=0, sticky='nsew')
+        self.rowconfigure(0,weight = 1)
+        self.columnconfigure(0,weight = 1)
+        
+        self.statusframe = ttk.Frame(self,borderwidth=2,relief='solid')
+        self.statusframe.grid(column=0, row=1, sticky='w')
+        
+        
+        self.stopbutton = ttk.Button(self.statusframe, text = 'STOP', command = self.quit)
+        self.stopbutton.grid(column=0, row=0)
+        self.quitbutton = ttk.Button(self.statusframe, text = 'QUIT', command = self.destroy)
+        self.quitbutton.grid(column = 1, row = 0)
+        self.update()
+        self.mainloop()
+#    def quitloop(self.):
+#        window.quit()

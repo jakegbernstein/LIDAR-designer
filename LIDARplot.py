@@ -7,6 +7,7 @@ Created on Thu Mar 29 20:52:49 2018
 """
 ### Import Modules
 import matplotlib.pyplot as plt
+#from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 import tkinter as tk
@@ -21,7 +22,7 @@ mainframe = ttk.Frame(window)
 in_frame = ttk.Frame(mainframe)
 static_frame = ttk.Frame(mainframe)
 output_frame = ttk.Frame(mainframe)
-graph_canvas = tk.Canvas(mainframe)
+graph_frame = ttk.Frame(mainframe)
 
 ### Set Parameters
 param_names = ('f','N','nu')
@@ -42,7 +43,7 @@ def quitloop():
 mainframe.grid(column = 0, row = 0)
 in_frame.grid(column = 0, row = 0)
 output_frame.grid(column = 1, row = 0)
-graph_canvas.grid(column = 2, row = 0)
+graph_frame.grid(column = 2, row = 0)
 
 f=6
 ### Draw Input Parameter frame
@@ -76,8 +77,18 @@ quitbutton.grid(column = 0, row = len(params_in)+2, columnspan = 2)
 
 
 
-#fig = plt.figure()
-#fig.suptitle('LIDAR System Design')
+fig = plt.figure()
+fig.suptitle('LIDAR System Design')
+figax =fig.add_axes([0,0,1,1])
+figax.plot([1,2,3,4,5])
+
+graph_canvas = FigureCanvasTkAgg(fig,graph_frame)
+graph_canvas.get_tk_widget().grid(column = 0, row = 0)
+graph_canvas.draw()
+
+#graph_canvas = FigureCanvasAgg(fig,graph_frame)
+
+#graph_frame.grid(column=2,row=1)
 
 #ax_inputs = fig.add_subplot(1,3,1)
 #ax_outputs = fig.add_subplot(1,3,2)
