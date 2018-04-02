@@ -86,49 +86,48 @@ graph_canvas = FigureCanvasTkAgg(fig,graph_frame)
 graph_canvas.get_tk_widget().grid(column = 0, row = 0)
 graph_canvas.draw()
 
-#graph_canvas = FigureCanvasAgg(fig,graph_frame)
+graph_canvas = FigureCanvasAgg(fig,graph_frame)
 
-#graph_frame.grid(column=2,row=1)
+graph_frame.grid(column=2,row=1)
 
-#ax_inputs = fig.add_subplot(1,3,1)
-#ax_outputs = fig.add_subplot(1,3,2)
-#ax_graphs = fig.add_subplot(1,3,3)
-#
-#for ax in fig.get_axes():
-#    ax.set_xticks([])
-#    ax.set_yticks([])
-#
-#ax_inputs.set_title('Input Parameters')
-#ax_outputs.set_title('Derived Parameters')
-#ax_graphs.set_title('Performance Graphics')
+ax_inputs = fig.add_subplot(1,3,1)
+ax_outputs = fig.add_subplot(1,3,2)
+ax_graphs = fig.add_subplot(1,3,3)
 
-#ax_inputs.set_ylim(0,len(params_in))
-#ax_inputs.set_xlim(0,1)
+for ax in fig.get_axes():
+    ax.set_xticks([])
+    ax.set_yticks([])
 
-#for p in params_in:
-#    ax_inputs.text(0,1+params_in.index(p),p)
-#    
-#
-#
-#
-#### Do stuff
-#
-#lidar.array_active = [100,100]
-##ureg.setup_matplotlib(True)
-#b = lidar.blur_defocus(Q_(1,'m'))
-#res = []
-#bits = []
-#Drange = np.linspace(.6,10,200)
-#for D in Drange:
-#    res.append(lidar.res_lat(D*U_('m')).to('cm').magnitude)
-#    bits.append(lidar.pixel_response(D*U_('m')).magnitude)
-#    
-#
-#ax_graphs.plot(Drange,res,'.-')
-#ax_graphs.set_ylabel('Lateral Resolution (cm)')
+ax_inputs.set_title('Input Parameters')
+ax_outputs.set_title('Derived Parameters')
+ax_graphs.set_title('Performance Graphics')
 
-#subplot(2,1,2)
-#semilogy(Drange,bits,'.-')
-#xlabel('Distance (m)')
-#ylabel('Bits per pixel per LED W ms')
-window.mainloop()
+ax_inputs.set_ylim(0,len(params_in))
+ax_inputs.set_xlim(0,1)
+
+for p in params_in:
+    ax_inputs.text(0,1+params_in.index(p),p)
+    
+
+
+
+### Do stuff
+
+lidar.array_active = [100,100]
+#ureg.setup_matplotlib(True)
+b = lidar.blur_defocus(Q_(1,'m'))
+res = []
+bits = []
+Drange = np.linspace(.6,10,200)
+for D in Drange:
+    res.append(lidar.res_lat(D*U_('m')).to('cm').magnitude)
+    bits.append(lidar.pixel_response(D*U_('m')).magnitude)
+    
+
+ax_graphs.plot(Drange,res,'.-')
+ax_graphs.set_ylabel('Lateral Resolution (cm)')
+
+subplot(2,1,2)
+semilogy(Drange,bits,'.-')
+xlabel('Distance (m)')
+ylabel('Bits per pixel per LED W ms')

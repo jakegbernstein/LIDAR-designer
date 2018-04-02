@@ -8,7 +8,7 @@ Created on Wed Mar 29
 """
 ### Import necessary modules    
 import sys
-import math
+from math import *
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
@@ -42,14 +42,15 @@ class LIDARoptics:
             LED_Vref = 3.1 * U_('volt'), # Input voltage at datasheet reference
             LED_Iref = 0.350 * U_('amp'), # Input current at datasheet reference
             LED_Poutref = 39.8 * U_('lumen'), # Optical power output at datasheet reference
+            LED_spotsize = 2 * U_('degrees'), # Spot size of each LED
             albedo = 0.25 * U_(''), # reflectivity of cave wall                
             # Image Sensor Parameters (epc660)
             pixel_w = 20 * U_('um'), # width of pixel [microns]            
             array_size = [320, 240], # size of image array [pixels]
             array_active = [320,240], # size of active image area [pixels]
-            pixel_relsens = 0.25, # relative sensitivity of pixel at lambda_illum
+            pixel_relsens = 0.25 * U_(''), # relative sensitivity of pixel at lambda_illum
             pixel_sens = 150e3 /(U_('lux') * U_('s')), # pixel sensitivy in LSBs
-            pixel_dt = 0.5 * U_('ms'), # amount of time light is pulsed for LIDAR image
+            t_int = 0.5 * U_('ms'), # amount of time light is pulsed for LIDAR image
             # Mechanical Parameters
             nu = 1 / U_('s'), # rotational frequency of lens               
             v_max = 0.5 * U_('m') / U_('s')
@@ -64,13 +65,18 @@ class LIDARoptics:
         self.LED_Vref = LED_Vref
         self.LED_Iref = LED_Iref
         self.LED_Poutref = LED_Poutref
+        self.LED_spotsize = LED_spotsize
         self.albedo = albedo
         self.pixel_w = pixel_w
         self.array_size = array_size
         self.array_active = array_active
         self.pixel_relsens = pixel_relsens
         self.pixel_sens = pixel_sens
-        self.pixel_dt = pixel_dt
+        self.t_int = t_int
+        
+        self.ureg = ureg
+        self.U_ = U_
+        self.Q_ = Q_
         
         ### Calculate derived values for object attributes
     def LED_Pinref(self):
@@ -93,13 +99,13 @@ class LIDARoptics:
     ## f = focal length of lens
 
     def arrayFoV(self, printans=False):
-        array_FoV = 2*math.atan(self.array_active[0]*self.pixel_w/(2*self.f))
+        array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*U_('radian')
         if printans:
             print("Image Sensor Field of View = %.3f degrees".format(math.degrees(array_FoV)))
         return array_FoV
     
     def pixelFoV(self, printans=False):
-        pixel_FoV = 2*math.atan(self.pixel_w/(2*self.f))
+        pixel_FoV = 2*atan(self.pixel_w/(2*self.f))*U_('radian')
         if printans:
             print("Single Pixel Field of View = %.3f degrees".format(math.degrees(pixel_FoV)))
         return pixel_FoV
@@ -155,7 +161,7 @@ class LIDARoptics:
         return {'pixel':blur_pixels,'space':blur_resolution}
     
     def blur_rotation(self, D, printans=False):
-        b_r = 2*pi*self.nu*self.pixel_dt
+        b_r = 2*pi*self.nu*self.t_int
         return b_r
     
     #Light capture from lens
@@ -174,12 +180,13 @@ class LIDARoptics:
      # Illumination will spread out w/ same FOV as lens, so spots imaged by each pixel will receive constant illumination.
     def pixel_response(self, D = None, printans=False):
         if D is None : D = self.D_max
-        illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
+        #illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
+        illum_spot = self.LED_Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
         illum_spot.ito(U_('lumen'))
         illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)        
         flux_pixel = illum_pixel/(self.pixel_w)**2
         flux_pixel.ito(U_('lux'))
-        #bits_per_pixel_per_watt = pixel_sens*flux_pixel*pixel_dt*pixel_lambdacorrection/LED_Pinref
+        #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
         bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
         bits_per_pixel_per_watt.ito(1/(U_('W')*U_('ms')))
         if printans:
@@ -197,10 +204,14 @@ class LIDARoptics:
             return self.pixelRes(D)
         
 class LIDARplotter(ttk.Frame):
-    param_names = ('f','N','nu')
+    param_names = ('f','N','nu','t_int','LED_spotsize')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
         self.lidar = lidar_optic
+        self.ureg = lidar_optic.ureg
+        self.Q_ = lidar_optic.Q_
+        self.U_ = lidar_optic.U_
+        
         self.initialize()
         
     def initialize(self):
@@ -212,8 +223,8 @@ class LIDARplotter(ttk.Frame):
         self.in_frame.grid(column = 0, row = 0, sticky='n')
         self.output_frame.grid(column = 1, row = 0, sticky ='n')
         self.graph_frame.grid(column = 2, row = 0, sticky = 'nsew')
-        self.columnconfigure(2,weight=1)
         self.rowconfigure(0,weight=1)
+        self.columnconfigure(2,weight=1)
         # Set up input parameter frame
         in_title = ttk.Label(self.in_frame,text = 'Input Parameters')
         in_title.grid(column = 0, row = 0, columnspan = 3)
@@ -241,12 +252,17 @@ class LIDARplotter(ttk.Frame):
         #Set up matplotlib figure
         self.fig = plt.figure()
         self.fig.suptitle('Graphs')
-        self.plot_latres = self.fig.add_subplot(2,1,1)
-        self.plot_bitres = self.fig.add_subplot(2,1,2)
+        self.ax_latres = self.fig.add_subplot(2,1,1)
+        self.ax_bitres = self.fig.add_subplot(2,1,2)
         #Import matplotlib figure to tk frame
         self.graph_canvas = FigureCanvasTkAgg(self.fig,self.graph_frame)
-        self.graph_canvas.get_tk_widget().grid(column = 0, row = 0)
-        self.graph_canvas.draw
+        #self.graph_canvas = FigureCanvasTkAgg(self.fig,self)
+        self.graph_canvas.get_tk_widget().grid(column = 0, row = 0, sticky='nsew')
+        self.graph_frame.rowconfigure(0, weight=1)
+        self.graph_frame.columnconfigure(0, weight=1)
+
+        self.plotresults()
+        #self.graph_canvas.draw
         #self.resizable(True,False)
         #self.update()
 
@@ -255,6 +271,31 @@ class LIDARplotter(ttk.Frame):
         for key in self.param_names:
             setattr(self.lidar, key, float(self.entryvars[key].get()) * getattr(self.lidar,key).units)
             print(getattr(self.lidar,key))
+        self.plotresults()
+        
+    def plotresults(self):
+        res = []
+        bits =[]
+        D_range = np.linspace(self.lidar.D_min.magnitude,self.lidar.D_max.magnitude,200)
+        for D in D_range:
+            res.append(self.lidar.res_lat(D*self.U_('m')).to('cm').magnitude)
+            bits.append(self.lidar.pixel_response(D*self.U_('m')).magnitude)
+        self.ax_latres.clear()
+        self.ax_bitres.clear()
+        self.ax_latres.plot(D_range,res)
+        self.ax_latres.set_ylabel('Lateral Resolution at D_max [cm]')
+        self.ax_bitres.semilogy(D_range,bits)
+        # Plot best sensitivity lines for bit resolution
+#        self.ax_bitres.lines([self.lidar.D_min.magnitude, self.lidar.D_max.magnitude],
+#                             [200, 200])
+#        self.ax_bitres.lines([self.lidar.D_min.magnitude, self.lidar.D_max.magnitude],
+#                             [1500, 1500])
+        self.ax_bitres.hlines([200,1500],self.lidar.D_min.magnitude, self.lidar.D_max.magnitude)
+        self.ax_bitres.set_xlabel('Distance [m]')
+        self.ax_bitres.set_ylabel('Bits per pixel per frame')        
+        #self.fig.draw()
+        self.graph_canvas.draw()
+        self.update()
         
 class LIDARGUI(tk.Tk):    
     def __init__(self, lidar_optic, *args, **kwargs):
@@ -273,9 +314,13 @@ class LIDARGUI(tk.Tk):
         
         self.stopbutton = ttk.Button(self.statusframe, text = 'STOP', command = self.quit)
         self.stopbutton.grid(column=0, row=0)
-        self.quitbutton = ttk.Button(self.statusframe, text = 'QUIT', command = self.destroy)
+        self.quitbutton = ttk.Button(self.statusframe, text = 'EXIT', command = self.exit)
         self.quitbutton.grid(column = 1, row = 0)
         self.update()
         self.mainloop()
+        
+    def exit(self):
+        plt.close()
+        self.destroy()
 #    def quitloop(self.):
 #        window.quit()
