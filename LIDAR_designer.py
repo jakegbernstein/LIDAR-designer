@@ -35,11 +35,11 @@ dp['D_max'] = (10,'m')
 dp['D_min'] = (.6,'m')
 #LED Parameters
 #dp['LED_label'] = 'Custom'
-dp['LED_lambda'] = (473,'nm')
-dp['lumfn_eff'] = (.2,'')
-dp['LED_Vref'] = (3.1,'volt')
-dp['LED_Iref'] = (0.350,'amp')
-dp['LED_Poutref'] = (39.8,'lumen')
+#dp['LED_lambda'] = (473,'nm')
+#dp['lumfn_eff'] = (.2,'')
+#dp['LED_Vref'] = (3.1,'volt')
+#dp['LED_Iref'] = (0.350,'amp')
+#dp['LED_Poutref'] = (39.8,'lumen')
 dp['LED_spotsize'] = (2,'degrees')
 dp['albedo'] = (0.25,'')
 dp['pixel_w'] = (20,'micrometer')
@@ -50,6 +50,7 @@ dp['pixel_sens'] = (150e3,'1/(lux*s)')
 dp['t_int'] = (1,'ms')
 dp['nu_max'] = (0.1,'1/s')
 dp['v_max'] = (0.5,'m/s')
+
 
 LED_partnums = ('CXA1820','CXA1830','Custom')
 datadir = './Data/'
@@ -115,17 +116,19 @@ class LIDARoptics:
                 setattr(self,par,self.Q_(kwargs[par][0],kwargs[par][1]))
             else:
                 setattr(self,par,self.Q_(dp[par][0],dp[par][1]))
+                
+        self.LED = LED(self.ureg)
             
         
         ### Calculate derived values for object attributes
     def LED_Pinref(self):
-        return self.LED_Vref * self.LED_Iref # Input power at datasheet reference
+        return self.LED.Vref * self.LED.Iref # Input power at datasheet reference
         
     def confusion(self):
         return self.pixel_w # max circle of confusion on image array
         
     def pixel_lambdacorrection(self):
-        return self.pixel_relsens/self.lumfn # wavelength correction
+        return self.pixel_relsens/self.LED.lumfn_eff # wavelength correction
         
     ######################################################################
     ### Calculations #####################################################
@@ -220,7 +223,7 @@ class LIDARoptics:
     def pixel_response(self, D = None, printans=False):
         if D is None : D = self.D_max
         #illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
-        illum_spot = self.LED_Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
+        illum_spot = self.LED.Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
         illum_spot.ito(self.U_('lumen'))
         illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)        
         flux_pixel = illum_pixel/(self.pixel_w)**2
@@ -252,7 +255,8 @@ class LED:
         with open(datadir+luminosityfile) as lumfile:
             self.lumfn = json.load(lumfile)
         self.ureg = ureg
-        self.Q_ = ureg.quantity
+        self.Q_ = self.ureg.Quantity
+        self.U_ = self.ureg.parse_expression
         self.load_LED()
         
     def load_LED(self):
@@ -261,11 +265,11 @@ class LED:
         with open(datadir+self.specfilename) as specfile:
             tempspec = json.load(specfile)
         for spec in tempspec.keys():
-            if type(tempspec[spec]) is tuple:
+            if (type(tempspec[spec]) is list) or (type(tempspec[spec]) is tuple):
                 setattr(self,spec,self.Q_(tempspec[spec][0],tempspec[spec][1]))
             else:
                 setattr(self,spec,tempspec[spec])
-        with open(datadir+self.outspecfilename) as outspecfile:
+        with open(datadir+self.outspecfile) as outspecfile:
             self.outspec = json.load(outspecfile)
         #Normalize output spectrum to integrate to 1
         self.outspecnorm = np.asarray(self.outspec['y'])
@@ -276,11 +280,12 @@ class LED:
         self.lumfnarray  = np.asarray(self.lumfn['y'])
         self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
         self.lumfn_eff = np.sum(self.outspecnorm*
-                                self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])
+                                self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])*self.U_('')
         
      
 class LIDARsummary(ttk.Frame):
-    param_names = ('f','N','nu','t_int','LED_spotsize')
+    param_names = ('f','N','nu_max','t_int','LED_spotsize')
+    param_LED = ('Iref','Vref','Poutref','lumfn_eff')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
         self.lidar = lidar_optic
@@ -319,12 +324,49 @@ class LIDARsummary(ttk.Frame):
             #print(getattr(lidar,params_in[i]))
             self.entrywidgets[key] = ttk.Entry(self.in_frame, textvariable = self.entryvars[key])
             self.entrywidgets[key].grid(column = 1, row = i)
+        # Make LED info input box
+        self.LED_frame = ttk.Frame(self.in_frame)
+        self.LEDvar = tk.StringVar(self)
+        templabel = ttk.Label(self.LED_frame, text='LED partnum:')
+        templabel.grid(column=0, row=0)
+        self.LED_choice = ttk.Combobox(self.LED_frame, textvariable=self.LEDvar)
+        self.LED_choice['values'] = LED_partnums
+        self.LED_choice.state = 'readonly'
+        self.LED_choice.bind('<<ComboboxSelected>>',self.changeLED)
+        self.LED_choice.grid(column=1, row=0, columnspan = 2)
+        j=0
+        self.LEDwidgets = dict()
+        self.LEDvars = dict()
+        for key in self.param_LED:
+            j=j+1
+            self.LEDvars[key] = tk.StringVar(self)
+            self.LEDvars[key].set(getattr(self.lidar.LED,key).magnitude)
+            templabel = ttk.Label(self.LED_frame, text=key)
+            templabel.grid(column = 0, row = j)
+            templabel = ttk.Label(self.LED_frame, text=str(getattr(self.lidar.LED,key).units))
+            templabel.grid(column=2, row=j)
+            self.LEDwidgets[key] = ttk.Entry(self.LED_frame, textvariable = self.LEDvars[key])
+            self.LEDwidgets[key].grid(column =1, row=j)
+        self.LED_frame.grid(column=0, row = i, columnspan=3)
         # Make buttons
         self.updatebutton =  ttk.Button(self.in_frame, text = 'Update Design', command = self.update_design)
-        self.updatebutton.grid(column = 0, row = len(self.param_names)+1, columnspan = 2)        
+        self.updatebutton.grid(column = 0, row = len(self.param_names)+2, columnspan = 2)        
         # Set up output parameter frame
         out_title = ttk.Label(self.output_frame, text = 'Design Output')
-        out_title.grid(column = 1, row = 0)
+        out_title.grid(column = 0, row = 0)
+        out_optical = ttk.Frame(self.output_frame)
+        out_power = ttk.Frame(self.output_frame)
+        out_data = ttk.Frame(self.output_frame)
+        #Set out optical outputs frame
+        
+        #Set up power outputs frame
+        
+        #Set up data outputs frame
+        
+        #Put output frames in grid
+        out_optical.grid(column=0, row=1, sticky='ew')
+        out_power.grid(column=0, row=2, sticky='ew')
+        out_data.grid(column=0, row=3, sticky='ew')
         #Set up matplotlib figure
         self.fig = plt.figure()
         self.fig.suptitle('Graphs')
@@ -348,6 +390,9 @@ class LIDARsummary(ttk.Frame):
             setattr(self.lidar, key, float(self.entryvars[key].get()) * getattr(self.lidar,key).units)
             print(getattr(self.lidar,key))
         self.plotresults()
+        
+    def changeLED(self):
+        self.LED_choice.selection_clear()
         
     def plotresults(self):
         res = []
@@ -405,7 +450,7 @@ class LIDARGUI(tk.Tk):
         #self.showwork = tk.BooleanVar()
         self.showwork = False
         self.showworkbutton = ttk.Checkbutton(self.statusframe, text = 'Show Work?',
-                                        command = work_changed, variable = self.showwork,
+                                        command = self.work_changed, variable = self.showwork,
                                         onvalue = True, offvalue = False)
         self.stopbutton = ttk.Button(self.statusframe, text = 'STOP', command = self.quit)
         self.stopbutton.grid(column=0, row=0)
