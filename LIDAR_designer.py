@@ -8,75 +8,114 @@ Created on Wed Mar 29
 """
 ### Import necessary modules    
 import sys
-from math import *
+from math import pi, atan, degrees
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 import tkinter as tk
 from tkinter import ttk
+import json
 
 ### Have to be careful to only have one unit registry for pint
 if not (('pint' in locals()) or ('pint' in globals())):
     import pint
     
-if not (('ureg' in locals()) or ('ureg' in globals())):
-    global ureg, U_, Q_
-    ureg = pint.UnitRegistry()
-    U_ = ureg.parse_expression
-    Q_ = ureg.Quantity 
+#if not (('ureg' in locals()) or ('ureg' in globals())):
+#    global ureg, U_, Q_
+#    ureg = pint.UnitRegistry()
+#    U_ = ureg.parse_expression
+#    Q_ = ureg.Quantity 
 
+defaultparams = dict()
+dp = defaultparams
+#Lens Parameters
+dp['f'] = (6,'mm')
+dp['N'] = (1,'')
+dp['D_max'] = (10,'m')
+dp['D_min'] = (.6,'m')
+#LED Parameters
+#dp['LED_label'] = 'Custom'
+dp['LED_lambda'] = (473,'nm')
+dp['lumfn_eff'] = (.2,'')
+dp['LED_Vref'] = (3.1,'volt')
+dp['LED_Iref'] = (0.350,'amp')
+dp['LED_Poutref'] = (39.8,'lumen')
+dp['LED_spotsize'] = (2,'degrees')
+dp['albedo'] = (0.25,'')
+dp['pixel_w'] = (20,'micrometer')
+dp['array_size'] = ([320,240],'')
+dp['array_active'] = ([320,240],'')
+dp['pixel_relsens'] = (0.25,'')
+dp['pixel_sens'] = (150e3,'1/(lux*s)')
+dp['t_int'] = (1,'ms')
+dp['nu_max'] = (0.1,'1/s')
+dp['v_max'] = (0.5,'m/s')
 
+LED_partnums = ('CXA1820','CXA1830','Custom')
+datadir = './Data/'
+luminosityfile = 'luminosity_spectrum.json'
+sensitivityfile = 'epc660_sensitivity.json'
 
 class LIDARoptics:
 
     def __init__(
             self,
+            ureg = None,
+            **kwargs
             # Lens Parameters
-            f = 6 * U_('mm'), # focal distance of lens [millimeters]
-            N = 1 * U_(''), # f-stop of lens aperture
-            D_max = 10 * U_('m'), # maximum imaging distance specified
-            D_min = 0.6 * U_('m'), # minimum imaging distance specified             
-            # Illumination Parameters (Cree XLAMP XB-D)
-            LED_lambda = 473 * U_('nm'), # wavelength of illumination
-            lumfn = .2 * U_(''), # luminosity function value at LED_lambda
-            LED_Vref = 3.1 * U_('volt'), # Input voltage at datasheet reference
-            LED_Iref = 0.350 * U_('amp'), # Input current at datasheet reference
-            LED_Poutref = 39.8 * U_('lumen'), # Optical power output at datasheet reference
-            LED_spotsize = 2 * U_('degrees'), # Spot size of each LED
-            albedo = 0.25 * U_(''), # reflectivity of cave wall                
-            # Image Sensor Parameters (epc660)
-            pixel_w = 20 * U_('um'), # width of pixel [microns]            
-            array_size = [320, 240], # size of image array [pixels]
-            array_active = [320,240], # size of active image area [pixels]
-            pixel_relsens = 0.25 * U_(''), # relative sensitivity of pixel at lambda_illum
-            pixel_sens = 150e3 /(U_('lux') * U_('s')), # pixel sensitivy in LSBs
-            t_int = 0.5 * U_('ms'), # amount of time light is pulsed for LIDAR image
-            # Mechanical Parameters
-            nu = 1 / U_('s'), # rotational frequency of lens               
-            v_max = 0.5 * U_('m') / U_('s')
+#            f = 6 * U_('mm'), # focal distance of lens [millimeters]
+#            N = 1 * U_(''), # f-stop of lens aperture
+#            D_max = 10 * U_('m'), # maximum imaging distance specified
+#            D_min = 0.6 * U_('m'), # minimum imaging distance specified             
+#            # Illumination Parameters (Cree XLAMP XB-D)
+#            LED_lambda = 473 * U_('nm'), # wavelength of illumination
+#            lumfn = .2 * U_(''), # luminosity function value at LED_lambda
+#            LED_Vref = 3.1 * U_('volt'), # Input voltage at datasheet reference
+#            LED_Iref = 0.350 * U_('amp'), # Input current at datasheet reference
+#            LED_Poutref = 39.8 * U_('lumen'), # Optical power output at datasheet reference
+#            LED_spotsize = 2 * U_('degrees'), # Spot size of each LED
+#            albedo = 0.25 * U_(''), # reflectivity of cave wall                
+#            # Image Sensor Parameters (epc660)
+#            pixel_w = 20 * U_('um'), # width of pixel [microns]            
+#            array_size = [320, 240], # size of image array [pixels]
+#            array_active = [320,240], # size of active image area [pixels]
+#            pixel_relsens = 0.25 * U_(''), # relative sensitivity of pixel at lambda_illum
+#            pixel_sens = 150e3 /(U_('lux') * U_('s')), # pixel sensitivy in LSBs
+#            t_int = 0.5 * U_('ms'), # amount of time light is pulsed for LIDAR image
+#            # Mechanical Parameters
+#            nu = 1 / U_('s'), # rotational frequency of lens               
+#            v_max = 0.5 * U_('m') / U_('s'),            
             ):
-        self.f = f
-        self.N = N
-        self.D_max = D_max
-        self.D_min = D_min
-        self.nu = nu
-        self.LED_lambda = LED_lambda
-        self.lumfn = lumfn
-        self.LED_Vref = LED_Vref
-        self.LED_Iref = LED_Iref
-        self.LED_Poutref = LED_Poutref
-        self.LED_spotsize = LED_spotsize
-        self.albedo = albedo
-        self.pixel_w = pixel_w
-        self.array_size = array_size
-        self.array_active = array_active
-        self.pixel_relsens = pixel_relsens
-        self.pixel_sens = pixel_sens
-        self.t_int = t_int
+#        self.f = f
+#        self.N = N
+#        self.D_max = D_max
+#        self.D_min = D_min
+#        self.nu = nu
+#        self.LED_lambda = LED_lambda
+#        self.lumfn = lumfn
+#        self.LED_Vref = LED_Vref
+#        self.LED_Iref = LED_Iref
+#        self.LED_Poutref = LED_Poutref
+#        self.LED_spotsize = LED_spotsize
+#        self.albedo = albedo
+#        self.pixel_w = pixel_w
+#        self.array_size = array_size
+#        self.array_active = array_active
+#        self.pixel_relsens = pixel_relsens
+#        self.pixel_sens = pixel_sens
+#        self.t_int = t_int
         
-        self.ureg = ureg
-        self.U_ = U_
-        self.Q_ = Q_
+        if (ureg == None) or (type(ureg) != type(pint.UnitRegistry())):
+            self.ureg = pint.UnitRegistry()
+        self.U_ = self.ureg.parse_expression
+        self.Q_ = self.ureg.Quantity
+        
+        for par in defaultparams.keys():
+            if par in kwargs.keys():
+                setattr(self,par,self.Q_(kwargs[par][0],kwargs[par][1]))
+            else:
+                setattr(self,par,self.Q_(dp[par][0],dp[par][1]))
+            
         
         ### Calculate derived values for object attributes
     def LED_Pinref(self):
@@ -99,15 +138,15 @@ class LIDARoptics:
     ## f = focal length of lens
 
     def arrayFoV(self, printans=False):
-        array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*U_('radian')
+        array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*self.U_('radian')
         if printans:
-            print("Image Sensor Field of View = %.3f degrees".format(math.degrees(array_FoV)))
+            print("Image Sensor Field of View = %.3f degrees".format(degrees(array_FoV)))
         return array_FoV
     
     def pixelFoV(self, printans=False):
-        pixel_FoV = 2*atan(self.pixel_w/(2*self.f))*U_('radian')
+        pixel_FoV = 2*atan(self.pixel_w/(2*self.f))*self.U_('radian')
         if printans:
-            print("Single Pixel Field of View = %.3f degrees".format(math.degrees(pixel_FoV)))
+            print("Single Pixel Field of View = %.3f degrees".format(degrees(pixel_FoV)))
         return pixel_FoV
     
     def pixelRes(self, D, printans=False):
@@ -123,7 +162,7 @@ class LIDARoptics:
     
     def hyperfocal(self, printans=False):
         H = self.f + self.f**2/(self.N*self.confusion())
-        H.ito(U_('m'))
+        H.ito(self.U_('m'))
         if printans:
             print("Hyperfocal distance = {:4.3f}s".format(H))
         return H
@@ -182,13 +221,13 @@ class LIDARoptics:
         if D is None : D = self.D_max
         #illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
         illum_spot = self.LED_Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
-        illum_spot.ito(U_('lumen'))
+        illum_spot.ito(self.U_('lumen'))
         illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)        
         flux_pixel = illum_pixel/(self.pixel_w)**2
-        flux_pixel.ito(U_('lux'))
+        flux_pixel.ito(self.U_('lux'))
         #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
         bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
-        bits_per_pixel_per_watt.ito(1/(U_('W')*U_('ms')))
+        bits_per_pixel_per_watt.ito(1/(self.U_('W*ms')))
         if printans:
             print("Illumination per spot imaged by each pixel = {:.3e}s".format(illum_spot))
             print("Illumination per pixel at {}s = {:.3e}s".format(D,illum_pixel)) 
@@ -202,8 +241,45 @@ class LIDARoptics:
             return b['space']
         else:
             return self.pixelRes(D)
+   
+class LED:
+    def __init__(self, ureg,
+                 partnum = None):
+        if (partnum == None) or (partnum not in LED_partnums):
+            self.partnum = LED_partnums[0]
+        else:
+            self.partnum = partnum
+        with open(datadir+luminosityfile) as lumfile:
+            self.lumfn = json.load(lumfile)
+        self.ureg = ureg
+        self.Q_ = ureg.quantity
+        self.load_LED()
         
-class LIDARplotter(ttk.Frame):
+    def load_LED(self):
+        #self.outspecfilename = self.partnum+'_spectrum.json'
+        self.specfilename = self.partnum+'.json'
+        with open(datadir+self.specfilename) as specfile:
+            tempspec = json.load(specfile)
+        for spec in tempspec.keys():
+            if type(tempspec[spec]) is tuple:
+                setattr(self,spec,self.Q_(tempspec[spec][0],tempspec[spec][1]))
+            else:
+                setattr(self,spec,tempspec[spec])
+        with open(datadir+self.outspecfilename) as outspecfile:
+            self.outspec = json.load(outspecfile)
+        #Normalize output spectrum to integrate to 1
+        self.outspecnorm = np.asarray(self.outspec['y'])
+        self.outspecnorm = self.outspecnorm/np.sum(self.outspecnorm)
+        self.outspeclambda = np.asarray(self.outspec['x'],dtype=int)
+        #Match luminosity function range to LED output spectrum
+        self.lumfnlambda = np.asarray(self.lumfn['x'],dtype=int)
+        self.lumfnarray  = np.asarray(self.lumfn['y'])
+        self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
+        self.lumfn_eff = np.sum(self.outspecnorm*
+                                self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])
+        
+     
+class LIDARsummary(ttk.Frame):
     param_names = ('f','N','nu','t_int','LED_spotsize')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
@@ -297,13 +373,28 @@ class LIDARplotter(ttk.Frame):
         self.graph_canvas.draw()
         self.update()
         
+class LIDARwork(ttk.Frame):
+    def __init__(self,parent,lidar_optic):
+        ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
+        self.lidar = lidar_optic
+        self.ureg = lidar_optic.ureg
+        self.Q_ = lidar_optic.Q_
+        self.U_ = lidar_optic.U_
+        
+        self.initialize()
+        
+    def initialize(self):
+        self.grid(column = 0, row = 0, stickey='nsew')
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        
 class LIDARGUI(tk.Tk):    
     def __init__(self, lidar_optic, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
         #tk.Tk.wm_title('LIDAR Design GUI')
         
         self.lidar_optic = lidar_optic
-        self.mainframe =  LIDARplotter(self,self.lidar_optic)
+        self.mainframe =  LIDARsummary(self,self.lidar_optic)
         self.mainframe.grid(column=0, row=0, sticky='nsew')
         self.rowconfigure(0,weight = 1)
         self.columnconfigure(0,weight = 1)
@@ -311,13 +402,27 @@ class LIDARGUI(tk.Tk):
         self.statusframe = ttk.Frame(self,borderwidth=2,relief='solid')
         self.statusframe.grid(column=0, row=1, sticky='w')
         
-        
+        #self.showwork = tk.BooleanVar()
+        self.showwork = False
+        self.showworkbutton = ttk.Checkbutton(self.statusframe, text = 'Show Work?',
+                                        command = work_changed, variable = self.showwork,
+                                        onvalue = True, offvalue = False)
         self.stopbutton = ttk.Button(self.statusframe, text = 'STOP', command = self.quit)
         self.stopbutton.grid(column=0, row=0)
         self.quitbutton = ttk.Button(self.statusframe, text = 'EXIT', command = self.exit)
         self.quitbutton.grid(column = 1, row = 0)
+        self.showworkbutton.grab_current(column = 2, row = 0)
         self.update()
         self.mainloop()
+        
+    def work_changed(self):
+        if self.showwork:
+            self.workwindow = tk.Toplevel(self)
+            self.workframe = LIDARwork(self,self.lidar_optic)
+            self.update()
+        else:
+            self.workwindow.destroy()
+        
         
     def exit(self):
         plt.close()
