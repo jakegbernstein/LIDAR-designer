@@ -327,6 +327,7 @@ class LIDARsummary(ttk.Frame):
         # Make LED info input box
         self.LED_frame = ttk.Frame(self.in_frame)
         self.LEDvar = tk.StringVar(self)
+        self.LEDvar.set(self.lidar.LED.partnum)
         templabel = ttk.Label(self.LED_frame, text='LED partnum:')
         templabel.grid(column=0, row=0)
         self.LED_choice = ttk.Combobox(self.LED_frame, textvariable=self.LEDvar)
@@ -348,6 +349,7 @@ class LIDARsummary(ttk.Frame):
             self.LEDwidgets[key] = ttk.Entry(self.LED_frame, textvariable = self.LEDvars[key])
             self.LEDwidgets[key].grid(column =1, row=j)
         self.LED_frame.grid(column=0, row = i, columnspan=3)
+        self.changeLED('')
         # Make buttons
         self.updatebutton =  ttk.Button(self.in_frame, text = 'Update Design', command = self.update_design)
         self.updatebutton.grid(column = 0, row = len(self.param_names)+2, columnspan = 2)        
@@ -391,8 +393,24 @@ class LIDARsummary(ttk.Frame):
             print(getattr(self.lidar,key))
         self.plotresults()
         
-    def changeLED(self):
+    def changeLED(self,event):
+        #print(event)
         self.LED_choice.selection_clear()
+        if self.LEDvar.get() != 'Custom':
+            self.lidar.LED.partnum = self.LEDvar.get()
+            self.lidar.LED.load_LED()
+        for par in self.param_LED:
+            if self.LEDvar.get() == 'Custom':
+                #print('Custom')
+                self.LEDwidgets[par]['state'] = 'normal'
+            else:
+                #print('Read only')
+                #print(self.LEDwidgets[par]['state'])
+                self.LEDwidgets[par]['state'] = 'normal'
+                self.LEDvars[par].set(getattr(self.lidar.LED,par).magnitude)
+                self.LEDwidgets[par]['state'] = 'readonly'
+        
+            
         
     def plotresults(self):
         res = []
@@ -429,7 +447,7 @@ class LIDARwork(ttk.Frame):
         self.initialize()
         
     def initialize(self):
-        self.grid(column = 0, row = 0, stickey='nsew')
+        self.grid(column = 0, row = 0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
         
@@ -447,8 +465,9 @@ class LIDARGUI(tk.Tk):
         self.statusframe = ttk.Frame(self,borderwidth=2,relief='solid')
         self.statusframe.grid(column=0, row=1, sticky='w')
         
-        #self.showwork = tk.BooleanVar()
-        self.showwork = False
+        self.showwork = tk.BooleanVar()
+        self.showwork.set(False)
+        #print(self.showwork.get())
         self.showworkbutton = ttk.Checkbutton(self.statusframe, text = 'Show Work?',
                                         command = self.work_changed, variable = self.showwork,
                                         onvalue = True, offvalue = False)
@@ -456,16 +475,17 @@ class LIDARGUI(tk.Tk):
         self.stopbutton.grid(column=0, row=0)
         self.quitbutton = ttk.Button(self.statusframe, text = 'EXIT', command = self.exit)
         self.quitbutton.grid(column = 1, row = 0)
-        self.showworkbutton.grab_current(column = 2, row = 0)
+        self.showworkbutton.grid(column = 2, row = 0)
         self.update()
         self.mainloop()
         
     def work_changed(self):
-        if self.showwork:
+        #print(self.showwork.get())
+        if self.showwork.get():
             self.workwindow = tk.Toplevel(self)
-            self.workframe = LIDARwork(self,self.lidar_optic)
+            self.workframe = LIDARwork(self.workwindow,self.lidar_optic)
             self.update()
-        else:
+        else:            
             self.workwindow.destroy()
         
         
