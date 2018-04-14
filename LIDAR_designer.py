@@ -57,6 +57,11 @@ datadir = './Data/'
 luminosityfile = 'luminosity_spectrum.json'
 sensitivityfile = 'epc660_sensitivity.json'
 
+
+outopticsmethods = ('hyperfocal','dnear','blur_defocus','blur_rotation','loss_geometric')
+outpowermethods = ()
+outdatamethods = ()
+
 class LIDARoptics:
 
     def __init__(
@@ -140,47 +145,67 @@ class LIDARoptics:
     ## d = sensor size in direction
     ## f = focal length of lens
 
-    def arrayFoV(self, printans=False):
+    def arrayFoV(self, printans=False, returnstring=False):
         array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*self.U_('radian')
+        outstring = "Image Sensor Field of View = %.3f degrees".format(degrees(array_FoV))
         if printans:
-            print("Image Sensor Field of View = %.3f degrees".format(degrees(array_FoV)))
-        return array_FoV
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return array_FoV
     
-    def pixelFoV(self, printans=False):
+    def pixelFoV(self, printans=False, returnstring=False):
         pixel_FoV = 2*atan(self.pixel_w/(2*self.f))*self.U_('radian')
+        outstring = "Single Pixel Field of View = %.3f degrees".format(degrees(pixel_FoV))
         if printans:
-            print("Single Pixel Field of View = %.3f degrees".format(degrees(pixel_FoV)))
-        return pixel_FoV
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return pixel_FoV
     
-    def pixelRes(self, D, printans=False):
+    def pixelRes(self, D, printans=False, returnstring=False):
         pixel_res = D*self.pixelFoV()
+        outstring = "Lateral Resolution at {}s = {:4.3f}s".format(D,pixel_res.to('cm'))
         if printans:
-            print("Lateral Resolution at {}s = {:4.3f}s".format(D,pixel_res.to('cm')))
-        return pixel_res
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return pixel_res
     
     # Hyperfocal distance: H = f + f**2/(Nc)
     ## f = focal distance of lens [length]
     ## c = circle of confusion [length]
     ## N = f-number of lens aperture
     
-    def hyperfocal(self, printans=False):
+    def hyperfocal(self, printans=False, returnstring=False):
         H = self.f + self.f**2/(self.N*self.confusion())
         H.ito(self.U_('m'))
+        outstring = "Hyperfocal distance = {:4.3f}s".format(H)
         if printans:
-            print("Hyperfocal distance = {:4.3f}s".format(H))
-        return H
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return H
         
     # Near limit DOF D_N = H*s/(H+s), s = subject distance
     ## Assume s is set to H
     ## D_N = H/2
-    def dnear(self, s = None, printans=False):
+    def dnear(self, s = None, printans=False, returnstring=False):
         H = self.hyperfocal()
         if s is None : s = H
         D_N = H*s/(H+s)
+        outstring = "Near limit of DOF = {:4.3f}s\n".format(D_N)
+        outstring = outstring + "Lateral resolution at {:4.3f}s = {:4.3f}s ".format(D_N, D_N.to('cm')*self.pixel_FoV())
         if printans:
-            print("Near limit of DOF = {:4.3f}s".format(D_N))
-            print("Lateral resolution at {:4.3f}s = {:4.3f}s ".format(D_N, D_N.to('cm')*self.pixel_FoV()))
-        return D_N
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return D_N
     
     #Calculate blur at D_min < D_N
     # b = (f*mag/N)*(x_D/D)
@@ -188,7 +213,7 @@ class LIDARoptics:
     ## x_d = difference between subject distance and D
     ## mag = f/(s-f)
     ## set s = H
-    def blur_defocus(self, D, s = None, printans=False):
+    def blur_defocus(self, D, s = None, printans=False, returnstring=False):
         if s is None : s = self.hyperfocal()
         x_d = abs(D-s)
         mag = self.f/(s-self.f)
@@ -197,14 +222,24 @@ class LIDARoptics:
         blur_pixels = blur_length/self.pixel_w
         blur_pixels.ito_base_units()
         blur_resolution = blur_pixels.magnitude*self.pixelRes(D)
+        outstring = "Blur at {}s = {} pixels\n".format(D,blur_pixels.magnitude)
+        outstring = outstring + "Blur at {}s = {}s".format(D,blur_resolution.to('cm'))
         if printans:
-            print("Blur at {}s = {} pixels".format(D,blur_pixels.magnitude))
-            print("Blur at {}s = {}s".format(D,blur_resolution.to('cm')))
-        return {'pixel':blur_pixels,'space':blur_resolution}
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return {'pixel':blur_pixels,'space':blur_resolution}
     
-    def blur_rotation(self, D, printans=False):
+    def blur_rotation(self, D, printans=False, returnstring=False):
         b_r = 2*pi*self.nu*self.t_int
-        return b_r
+        outstring = "Blur due to rotation = {}".format(b_r)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return b_r
     
     #Light capture from lens
     ## Effective aperture radius = f/(2*N)
@@ -298,9 +333,9 @@ class LIDARsummary(ttk.Frame):
     def initialize(self):
         self.grid(column = 0, row = 0)
         # Set up three subframes
-        self.in_frame = ttk.Frame(self,borderwidth=1, relief='solid')
-        self.output_frame = ttk.Frame(self,borderwidth=1, relief='solid')
-        self.graph_frame = ttk.Frame(self,borderwidth=1, relief='solid')
+        self.in_frame = ttk.Frame(self,borderwidth=2, relief='solid')
+        self.output_frame = ttk.Frame(self,borderwidth=2, relief='solid')
+        self.graph_frame = ttk.Frame(self,borderwidth=2, relief='solid')
         self.in_frame.grid(column = 0, row = 0, sticky='n')
         self.output_frame.grid(column = 1, row = 0, sticky ='n')
         self.graph_frame.grid(column = 2, row = 0, sticky = 'nsew')
@@ -325,7 +360,7 @@ class LIDARsummary(ttk.Frame):
             self.entrywidgets[key] = ttk.Entry(self.in_frame, textvariable = self.entryvars[key])
             self.entrywidgets[key].grid(column = 1, row = i)
         # Make LED info input box
-        self.LED_frame = ttk.Frame(self.in_frame)
+        self.LED_frame = ttk.Frame(self.in_frame,borderwidth=1,relief='solid')
         self.LEDvar = tk.StringVar(self)
         self.LEDvar.set(self.lidar.LED.partnum)
         templabel = ttk.Label(self.LED_frame, text='LED partnum:')
@@ -356,9 +391,21 @@ class LIDARsummary(ttk.Frame):
         # Set up output parameter frame
         out_title = ttk.Label(self.output_frame, text = 'Design Output')
         out_title.grid(column = 0, row = 0)
-        out_optical = ttk.Frame(self.output_frame)
-        out_power = ttk.Frame(self.output_frame)
-        out_data = ttk.Frame(self.output_frame)
+        #out_optical = ttk.Frame(self.output_frame,borderwidth=1, relief='solid')        
+        #out_power = ttk.Frame(self.output_frame,borderwidth=1, relief='solid')
+        #out_data = ttk.Frame(self.output_frame,borderwidth=1, relief='solid')
+        
+        ### Usinge Outbox class to keep code manageable
+        #The Outbox is a frame with a number of message boxes inside, which are
+        #linked to StringVars kept in a dictionary keyed to the method names
+        #that produce the desired output strings
+        #Outbox is passed in a list of method names and an empty dictionary
+        outopticsvars = dict()
+        outpowervars = dict()
+        outdatavars = dict()
+        out_optical = Outbox(self.output_frame,'Optical Specs',outopticsmethods,outopticsvars)
+        out_power = Outbox(self.output_frame,'Power Specs',outpowermethods,outpowervars)
+        out_data = Outbox(self.output_frame,'Data Specs',outdatavars)
         #Set out optical outputs frame
         
         #Set up power outputs frame
@@ -494,3 +541,18 @@ class LIDARGUI(tk.Tk):
         self.destroy()
 #    def quitloop(self.):
 #        window.quit()
+        
+class Outbox(ttk.Labelframe):
+    def __init__(self,parent,label,methodnames,vardict):
+        ttk.Labelframe.__init__(self,parent,text=label)
+        self.widgetdict = dict()
+        i = 0
+        for var in methodnames:
+            vardict[var] = tk.StringVar()
+            self.widgetdict[var] = tk.Message(self,textvariable=vardict[var])
+            self.widgetdict[var].grid(column = 1, row = i)
+            templabel = ttk.Label(self,text=var)
+            templabel.grid(column=0, row = i)
+            i = i+1
+            
+            
