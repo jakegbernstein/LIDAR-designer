@@ -53,6 +53,7 @@ dp['v_max'] = (0.5,'m/s')
 
 
 LED_partnums = ('CXA1820','CXA1830','Custom')
+Sensor_partnums = ('epc660','Custom')
 datadir = './Data/'
 luminosityfile = 'luminosity_spectrum.json'
 sensitivityfile = 'epc660_sensitivity.json'
@@ -124,6 +125,7 @@ class LIDARoptics:
                 setattr(self,par,self.Q_(dp[par][0],dp[par][1]))
                 
         self.LED = LED(self.ureg)
+        self.Sensor = Sensor(self.ureg)
             
         
         ### Calculate derived values for object attributes
@@ -335,7 +337,47 @@ class LED:
         self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
         self.lumfn_eff = np.sum(self.outspecnorm*
                                 self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])*self.U_('')
+    
+class Sensor:
+    def __init__(self, ureg, partnum = None):
+        if (partnum == None) or (partnum not in Sensor_partnums):
+            self.partnum = Sensor_partnums[0]
+        else:
+            self.partnum = partnum
+        self.ureg = ureg
+        self.Q_ = self.ureg.Quantity
+        self.U_ = self.ureg.parse_expression
+        self.load_Sensor()
         
+    def load_Sensor(self):
+        self.specfilename = self.partnum+'.json'
+        with open(datadir+self.specfilename) as specfile:
+            tempspec = json.load(specfile)
+        for spec in tempspec.keys():
+            if (type(tempspec[spec]) is list) or (type(tempspec[spec]) is tuple):
+                setattr(self,spec,self.Q_(tempspec[spec][0],tempspec[spec][1]))
+            else:
+                setattr(self,spec,tempspec[spec])
+        with open(datadir+self.sensitivityfilename) as sensitivityfile:
+            self.sensitivityspec = json.load(sensitivityfile)
+        self.sensitivity = np.asarray(self.sensitivityspec['y'])
+        self.sensitivitylambda = np.asanyarray(self.sensitivityspec['x'],dtype=int)
+        
+    def sensCDF(self, led):
+        lambdarange = [max(self.sensitivitylambda[0],led.outspeclambda[0]),
+                       min(self.sensitivitylambda[-1],led.outspeclambda[-1])]
+        #print(lambdarange)
+        multsens = lambda l: (self.sensitivity[self.sensitivitylambda.tolist().index(l)] *
+                               led.outspecnorm[led.outspeclambda.tolist().index(l)])
+        out = {'x': [lambdarange[0]], 
+               'y': [multsens(lambdarange[0])]}
+        for i in range(lambdarange[0]+1,lambdarange[1]+1):
+            #print(i)
+            out['x'].append(i)
+            out['y'].append(out['y'][-1]+multsens(i))
+        #print(out['x'])
+        return out
+            
      
 class LIDARsummary(ttk.Frame):
     param_names = ('f','N','nu_max','t_int','LED_spotsize')
@@ -507,19 +549,75 @@ class LIDARsummary(ttk.Frame):
         self.update()
         
 class LIDARwork(ttk.Frame):
+    outimagemethods = ('pixel_response')
     def __init__(self,parent,lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
+        self.grid(row=0, column = 0, sticky='nsew')
+        self.rowconfigure(0, weight=1)
         self.lidar = lidar_optic
         self.ureg = lidar_optic.ureg
         self.Q_ = lidar_optic.Q_
         self.U_ = lidar_optic.U_
-        
         self.initialize()
         
     def initialize(self):
         self.grid(column = 0, row = 0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        #Put all frames in a dictionary to keep track
+        self.frames = dict()
+        self.outimagevars = dict()
+        self.frames['LEDcalc'] = ttk.Labelframe(self, text = 'LED Spectrum Calculations')
+        #self.frames['Sensorcalc'] = ttk.Labelframe(self, text = 'Image Sensor Sensitivity Calculations')        
+        self.frames['Sensorcalc'] = Outbox(self,'Image Sensor Sensitivity Calculations',self.outimagemethods,self.outimagevars)
+        #Stick frames on grid
+        i = 0
+        for f in self.frames.keys():
+            self.frames[f].grid(row = 0, column = i, sticky='nsew')
+            i = i+1
+        
+        ###Set up LEDcalc frame
+        #Set up matplotlib figure
+        self.LEDfig = plt.figure()
+        #self.LEDfig.suptitle('')
+        self.ax_LED = self.LEDfig.add_subplot(4,1,1)        
+        self.ax_Sensor = self.LEDfig.add_subplot(4,1,2)
+        self.ax_SensIntegral = self.LEDfig.add_subplot(4,1,3)
+        self.ax_lum = self.LEDfig.add_subplot(4,1,4)
+        #Import matplotlib figure to tk frame
+        self.LED_graph_canvas = FigureCanvasTkAgg(self.LEDfig,self.frames['LEDcalc'])
+        #self.graph_canvas = FigureCanvasTkAgg(self.fig,self)
+        self.LED_graph_canvas.get_tk_widget().grid(column = 0, row = 0, sticky='nsew')
+        self.frames['LEDcalc'].rowconfigure(0, weight=1)
+        self.frames['LEDcalc'].columnconfigure(0, weight=1)
+        self.plotLED()
+        
+        
+
+        
+
+    def plotLED(self):
+        self.ax_LED.clear()
+        self.ax_lum.clear()
+        
+        self.ax_LED.plot(self.lidar.LED.outspeclambda, self.lidar.LED.outspecnorm)
+        self.ax_LED.set_ylabel('LED output spectrum (normalized)')
+        
+        self.ax_Sensor.plot(self.lidar.Sensor.sensitivitylambda, self.lidar.Sensor.sensitivity)
+        self.ax_Sensor.set_ylabel('Sensitivity of Image Sensor (normalized)')
+        self.ax_lum.set_xlim(self.ax_LED.get_xlim())
+        
+        sensintegral = self.lidar.Sensor.sensCDF(self.lidar.LED)
+        self.ax_SensIntegral.plot(sensintegral['x'],np.array(sensintegral['y'])/max(sensintegral['y']))
+        
+        self.ax_lum.plot(self.lidar.LED.lumfnlambda, self.lidar.LED.lumfnarray)
+        self.ax_lum.set_xlim(self.ax_LED.get_xlim())
+        self.ax_lum.set_ylabel('Luminosity function (normalized)')
+        self.ax_lum.set_xlabel('Wavelength (nm)')
+        
+        
+        self.LED_graph_canvas.draw()
+        self.update()
         
 class LIDARGUI(tk.Tk):    
     def __init__(self, lidar_optic, *args, **kwargs):
@@ -536,11 +634,12 @@ class LIDARGUI(tk.Tk):
         self.statusframe.grid(column=0, row=1, sticky='w')
         
         self.showwork = tk.BooleanVar(self)
-        self.showwork.set(False)
+        self.showwork.set(True)
         #print(self.showwork.get())
         self.showworkbutton = ttk.Checkbutton(self.statusframe, text = 'Show Work?',
                                         command = self.work_changed, variable = self.showwork,
                                         onvalue = True, offvalue = False)
+        self.work_changed()
         self.stopbutton = ttk.Button(self.statusframe, text = 'STOP', command = self.quit)
         self.stopbutton.grid(column=0, row=0)
         self.quitbutton = ttk.Button(self.statusframe, text = 'EXIT', command = self.exit)
@@ -553,6 +652,8 @@ class LIDARGUI(tk.Tk):
         #print(self.showwork.get())
         if self.showwork.get():
             self.workwindow = tk.Toplevel(self)
+            self.workwindow.rowconfigure(0, weight=1)
+            self.workwindow.columnconfigure(0,weight=1)
             self.workframe = LIDARwork(self.workwindow,self.lidar_optic)
             self.update()
         else:            
@@ -571,7 +672,7 @@ class Outbox(ttk.Labelframe):
         self.widgetdict = dict()
         i = 0
         for var in methodnames:
-            vardict[var] = tk.StringVar()
+            vardict[var] = tk.StringVar(self)
             #print(type(vardict[var]))
             self.widgetdict[var] = tk.Message(self,textvariable=vardict[var], width=500)
             self.widgetdict[var].grid(column = 1, row = i, sticky='nw')
