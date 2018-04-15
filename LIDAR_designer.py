@@ -61,6 +61,7 @@ sensitivityfile = 'epc660_sensitivity.json'
 outopticsmethods = ('hyperfocal','dnear','blur_defocus','blur_rotation','loss_geometric')
 outpowermethods = ()
 outdatamethods = ()
+outmethods = (outopticsmethods,outpowermethods,outdatamethods)
 
 class LIDARoptics:
 
@@ -199,7 +200,7 @@ class LIDARoptics:
         if s is None : s = H
         D_N = H*s/(H+s)
         outstring = "Near limit of DOF = {:4.3f}s\n".format(D_N)
-        outstring = outstring + "Lateral resolution at {:4.3f}s = {:4.3f}s ".format(D_N, D_N.to('cm')*self.pixel_FoV())
+        outstring = outstring + "Lateral resolution at {:4.3f}s = {:4.3f}s ".format(D_N, D_N.to('cm')*self.pixelFoV()/self.U_('radian'))
         if printans:
             print(outstring)
         if returnstring:
@@ -213,8 +214,9 @@ class LIDARoptics:
     ## x_d = difference between subject distance and D
     ## mag = f/(s-f)
     ## set s = H
-    def blur_defocus(self, D, s = None, printans=False, returnstring=False):
+    def blur_defocus(self, D = None, s = None, printans=False, returnstring=False):
         if s is None : s = self.hyperfocal()
+        if D is None : D = self.D_max
         x_d = abs(D-s)
         mag = self.f/(s-self.f)
         blur_length = (self.f*mag/self.N)*(x_d/D)
@@ -222,8 +224,8 @@ class LIDARoptics:
         blur_pixels = blur_length/self.pixel_w
         blur_pixels.ito_base_units()
         blur_resolution = blur_pixels.magnitude*self.pixelRes(D)
-        outstring = "Blur at {}s = {} pixels\n".format(D,blur_pixels.magnitude)
-        outstring = outstring + "Blur at {}s = {}s".format(D,blur_resolution.to('cm'))
+        outstring = "Blur at {}s = {:.1f} pixels\n".format(D,blur_pixels.magnitude)
+        outstring = outstring + "Blur at {}s = {:.3}s".format(D,blur_resolution.to('cm'))
         if printans:
             print(outstring)
         if returnstring:
@@ -231,9 +233,11 @@ class LIDARoptics:
         else:
             return {'pixel':blur_pixels,'space':blur_resolution}
     
-    def blur_rotation(self, D, printans=False, returnstring=False):
-        b_r = 2*pi*self.nu*self.t_int
-        outstring = "Blur due to rotation = {}".format(b_r)
+    def blur_rotation(self, D=None, printans=False, returnstring=False):
+        if D is None: D = self.D_max
+        b_r = 2*pi*self.U_('radian')*self.nu_max*self.t_int
+        b_r.ito_base_units()
+        outstring = "Blur due to rotation at {}s = {:.3}s".format(D,b_r*D.to('cm')/self.U_('radian'))
         if printans:
             print(outstring)
         if returnstring:
@@ -246,16 +250,20 @@ class LIDARoptics:
     ## Lambertian radiation pattern ~ cos(theta)
     ## P_collectedbylens/P_total = Area_lens,effective*cos(theta)/(pi*Distance**2)
     ## P/P_total = (f/(2*N*Distance))**2
-    def loss_geometric(self, D = None, printans=False):
+    def loss_geometric(self, D = None, printans=False, returnstring=False):
         if D is None : D = self.D_max
         lg = (self.f/(2*self.N*D))**2
         lg.ito_base_units()
+        outstring = "Fraction of reflected light collected by lens at {}s = {:4e}".format(D, lg.magnitude)
         if printans:
-            print("Fraction of reflected light collected by lens at {}s = {:4e}".format(D, lg.magnitude))
-        return lg
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return lg
         
      # Illumination will spread out w/ same FOV as lens, so spots imaged by each pixel will receive constant illumination.
-    def pixel_response(self, D = None, printans=False):
+    def pixel_response(self, D = None, printans=False, returnstring=False):
         if D is None : D = self.D_max
         #illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
         illum_spot = self.LED.Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
@@ -266,19 +274,30 @@ class LIDARoptics:
         #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
         bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
         bits_per_pixel_per_watt.ito(1/(self.U_('W*ms')))
+        outstring = "Illumination per spot imaged by each pixel = {:.3e}s\n".format(illum_spot)
+        outstring = outstring + "Illumination per pixel at {}s = {:.3e}s\n".format(D,illum_pixel)
+        outstring = outstring + "Radiant flux per pixel at {}s = {:.3e}\n".format(D,flux_pixel)
+        outstring = outstring + "Bits per pixel/LED input energy at {}s= {:.2f}".format(D, bits_per_pixel_per_watt)
         if printans:
-            print("Illumination per spot imaged by each pixel = {:.3e}s".format(illum_spot))
-            print("Illumination per pixel at {}s = {:.3e}s".format(D,illum_pixel)) 
-            print("Radiant flux per pixel at {}s = {:.3e}".format(D,flux_pixel)) 
-            print("Bits per pixel/LED input energy at {}s= {:.2f}".format(D, bits_per_pixel_per_watt))
-        return bits_per_pixel_per_watt
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return bits_per_pixel_per_watt
     
-    def res_lat(self, D, s = None, printans=False):
+    def res_lat(self, D, s = None, printans=False, returnstring=False):
         b = self.blur_defocus(D, s)
         if b['pixel'] > 1:
-            return b['space']
+            res = b['space']
         else:
-            return self.pixelRes(D)
+            res = self.pixelRes(D)
+        outstring = "Lateral resolution = {}".format(res)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return res
    
 class LED:
     def __init__(self, ureg,
@@ -333,8 +352,8 @@ class LIDARsummary(ttk.Frame):
     def initialize(self):
         self.grid(column = 0, row = 0)
         # Set up three subframes
-        self.in_frame = ttk.Frame(self,borderwidth=2, relief='solid')
-        self.output_frame = ttk.Frame(self,borderwidth=2, relief='solid')
+        self.in_frame = ttk.Frame(self,borderwidth=2, relief='solid',padding=5)
+        self.output_frame = ttk.Frame(self,borderwidth=2, relief='solid',padding=5)
         self.graph_frame = ttk.Frame(self,borderwidth=2, relief='solid')
         self.in_frame.grid(column = 0, row = 0, sticky='n')
         self.output_frame.grid(column = 1, row = 0, sticky ='n')
@@ -359,8 +378,9 @@ class LIDARsummary(ttk.Frame):
             #print(getattr(lidar,params_in[i]))
             self.entrywidgets[key] = ttk.Entry(self.in_frame, textvariable = self.entryvars[key])
             self.entrywidgets[key].grid(column = 1, row = i)
-        # Make LED info input box
-        self.LED_frame = ttk.Frame(self.in_frame,borderwidth=1,relief='solid')
+        
+        # Make LED info input box        
+        self.LED_frame = ttk.Labelframe(self.in_frame,text='LED Parameters',padding=5)
         self.LEDvar = tk.StringVar(self)
         self.LEDvar.set(self.lidar.LED.partnum)
         templabel = ttk.Label(self.LED_frame, text='LED partnum:')
@@ -403,19 +423,15 @@ class LIDARsummary(ttk.Frame):
         outopticsvars = dict()
         outpowervars = dict()
         outdatavars = dict()
-        out_optical = Outbox(self.output_frame,'Optical Specs',outopticsmethods,outopticsvars)
-        out_power = Outbox(self.output_frame,'Power Specs',outpowermethods,outpowervars)
-        out_data = Outbox(self.output_frame,'Data Specs',outdatavars)
-        #Set out optical outputs frame
-        
-        #Set up power outputs frame
-        
-        #Set up data outputs frame
-        
-        #Put output frames in grid
-        out_optical.grid(column=0, row=1, sticky='ew')
-        out_power.grid(column=0, row=2, sticky='ew')
-        out_data.grid(column=0, row=3, sticky='ew')
+        self.outvars = (outopticsvars,outpowervars,outdatavars)
+        self.out_optical = Outbox(self.output_frame,'Optical Specs',outopticsmethods,outopticsvars)
+        self.out_power = Outbox(self.output_frame,'Power Specs',outpowermethods,outpowervars)
+        self.out_data = Outbox(self.output_frame,'Data Specs',outdatamethods,outdatavars)
+        self.update_outputs()
+        self.out_optical.grid(column=0, row=1, sticky='ew')
+        self.out_power.grid(column=0, row=2, sticky='ew')
+        self.out_data.grid(column=0, row=3, sticky='ew')
+
         #Set up matplotlib figure
         self.fig = plt.figure()
         self.fig.suptitle('Graphs')
@@ -457,6 +473,13 @@ class LIDARsummary(ttk.Frame):
                 self.LEDvars[par].set(getattr(self.lidar.LED,par).magnitude)
                 self.LEDwidgets[par]['state'] = 'readonly'
         
+    def update_outputs(self):
+        for i in range(len(outmethods)):
+            #map(lambda x: outvars[i][x] = getattr(self,x)(returnstring=True), outmethods[i])
+            #map(lambda x: getattr(self,x)(returnstring=True), outmethods[i])
+            for meth in outmethods[i]:
+                #print(type(self.outvars[i][meth]))
+                self.outvars[i][meth].set(getattr(self.lidar,meth)(returnstring=True))
             
         
     def plotresults(self):
@@ -512,7 +535,7 @@ class LIDARGUI(tk.Tk):
         self.statusframe = ttk.Frame(self,borderwidth=2,relief='solid')
         self.statusframe.grid(column=0, row=1, sticky='w')
         
-        self.showwork = tk.BooleanVar()
+        self.showwork = tk.BooleanVar(self)
         self.showwork.set(False)
         #print(self.showwork.get())
         self.showworkbutton = ttk.Checkbutton(self.statusframe, text = 'Show Work?',
@@ -549,10 +572,11 @@ class Outbox(ttk.Labelframe):
         i = 0
         for var in methodnames:
             vardict[var] = tk.StringVar()
-            self.widgetdict[var] = tk.Message(self,textvariable=vardict[var])
-            self.widgetdict[var].grid(column = 1, row = i)
+            #print(type(vardict[var]))
+            self.widgetdict[var] = tk.Message(self,textvariable=vardict[var], width=500)
+            self.widgetdict[var].grid(column = 1, row = i, sticky='nw')
             templabel = ttk.Label(self,text=var)
-            templabel.grid(column=0, row = i)
+            templabel.grid(column=0, row = i, sticky='nw')
             i = i+1
             
             
