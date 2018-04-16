@@ -344,12 +344,14 @@ class Sensor:
             self.partnum = Sensor_partnums[0]
         else:
             self.partnum = partnum
+        print(self.partnum)
         self.ureg = ureg
         self.Q_ = self.ureg.Quantity
         self.U_ = self.ureg.parse_expression
         self.load_Sensor()
         
     def load_Sensor(self):
+        print(self.partnum)
         self.specfilename = self.partnum+'.json'
         with open(datadir+self.specfilename) as specfile:
             tempspec = json.load(specfile)
@@ -382,6 +384,7 @@ class Sensor:
 class LIDARsummary(ttk.Frame):
     param_names = ('f','N','nu_max','t_int','LED_spotsize')
     param_LED = ('Iref','Vref','Poutref','lumfn_eff')
+    param_Sensor = ('pixel_sens','filter_cut','filter_pass')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
         self.lidar = lidar_optic
@@ -447,9 +450,37 @@ class LIDARsummary(ttk.Frame):
             self.LEDwidgets[key].grid(column =1, row=j)
         self.LED_frame.grid(column=0, row = i, columnspan=3)
         self.changeLED('')
+        
+        # Make Sensor info input box
+        self.Sensor_frame = ttk.Labelframe(self.in_frame,text='Sensor Parameters',padding=5)
+        self.Sensorvar = tk.StringVar(self)
+        self.LEDvar.set(self.lidar.Sensor.partnum)
+        templabel = ttk.Label(self.Sensor_frame, text='Sensor partnum:')
+        templabel.grid(column=0, row=0)
+        self.Sensor_choice = ttk.Combobox(self.Sensor_frame, textvariable=self.Sensorvar)
+        self.Sensor_choice['values'] = Sensor_partnums
+        self.Sensor_choice.state = 'readonly'
+        self.Sensor_choice.bind('<<ComboboxSelected>>',self.changeSensor)
+        self.Sensor_choice.grid(column=1, row=0, columnspan=2)
+        j=0
+        self.Sensorwidgets = dict()
+        self.Sensorvars = dict()
+        for key in self.param_Sensor:
+            j=j+1
+            self.Sensorvars[key] = tk.StringVar(self)
+            self.Sensorvars[key].set(getattr(self.lidar.Sensor,key).magnitude)
+            templabel = ttk.Label(self.Sensor_frame, text=key)
+            templabel.grid(column=0, row = j)
+            templabel = ttk.Label(self.Sensor_frame, text=str(getattr(self.lidar.Sensor,key).units))
+            templabel.grid(column=2, row=j)
+            self.Sensorwidgets[key] = ttk.Entry(self.Sensor_frame, textvariable = self.Sensorvars[key])
+            self.Sensorwidgets[key].grid(column=1, row=j)
+        self.Sensor_frame.grid(column=0,row=i+1,columnspan=3)
+        self.changeSensor('')
+        
         # Make buttons
         self.updatebutton =  ttk.Button(self.in_frame, text = 'Update Design', command = self.update_design)
-        self.updatebutton.grid(column = 0, row = len(self.param_names)+2, columnspan = 2)        
+        self.updatebutton.grid(column = 0, row = len(self.param_names)+3, columnspan = 2)        
         # Set up output parameter frame
         out_title = ttk.Label(self.output_frame, text = 'Design Output')
         out_title.grid(column = 0, row = 0)
@@ -514,6 +545,19 @@ class LIDARsummary(ttk.Frame):
                 self.LEDwidgets[par]['state'] = 'normal'
                 self.LEDvars[par].set(getattr(self.lidar.LED,par).magnitude)
                 self.LEDwidgets[par]['state'] = 'readonly'
+                
+    def changeSensor(self,event):
+        self.Sensor_choice.selection_clear()
+        if self.Sensorvar.get() != 'Custom':
+            self.lidar.Sensor.partnum = self.Sensorvar.get()
+            self.lidar.Sensor.load_Sensor()
+        for par in self.param_Sensor:
+            if self.Sensorvar.get() == 'Custom':
+                self.Sensorwidgets[par]['state'] = 'normal'
+            else:
+                self.Sensorwidgets[par]['state'] = 'normal'
+                self.Sensorvars[par].set(getattr(self.lidar.Sensor,par).magnitude)
+                self.Sensorwidgets[par]['state'] = 'readonly'
         
     def update_outputs(self):
         for i in range(len(outmethods)):

@@ -1,1 +1,1 @@
-{"sensitivityfilename": "epc660_sensitivity.json"}
+{"sensitivityfilename": "epc660_sensitivity.json", "pixel_sens": [150e3, "1/(lux*s)"], "filter_cut": [595, "nm"], "filter_pass": [0.85, "dimensionless"]}
