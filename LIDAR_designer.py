@@ -273,12 +273,12 @@ class LIDARoptics:
         #illum_spot = self.LED_flux_luminous/(self.array_active[0]*self.array_active[1])
         illum_spot = self.LED.flux_radiant()*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
         illum_spot.ito('W')
-        print(illum_spot)
+        #print(illum_spot)
         illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)
-        print(illum_pixel)        
+        #print(illum_pixel)        
         f_p = illum_pixel/(self.pixel_w)**2
         f_p.ito('W/m^2')
-        print(f_p)
+        #print(f_p)
 #        #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
 #        bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
 #        bits_per_pixel_per_watt.ito(1/(self.U_('W*ms')))
@@ -321,12 +321,31 @@ class LIDARoptics:
         else:
             return p_avg
         
-    def pixel_response(self, printans = False, returnstring = False):
-        spec_sens = self.Sensor.spectrum_sens(self.LED)
-        p_r = spec_sens*self.t_int
-        p_r.ito_reduced_units()
-        print(p_r)
-        outstring = "Pixel response = {:.3}".format(p_r)
+    def spectrum_sens(self, printans=False, returnstring = False):        
+        #Integrate actoss LED spectrum, pixel sensitivity, and filter
+        lambdas = range(max(self.LED.outspeclambda[0],self.Sensor.sensitivitylambda[0]),self.Sensor.filter_cut.magnitude)
+        sens_spectrum = [self.Sensor.filter_pass * self.LED.outspecnorm[self.LED.outspeclambda.tolist().index(l)]
+                                          * self.Sensor.sensitivity[self.Sensor.sensitivitylambda.tolist().index(l)]
+                         for l in lambdas]
+        sens_coeff = sum(sens_spectrum)
+        outstring = 'Sensitivity coefficient = {:.3}\n'.format(sens_coeff)
+        #print(sens_coeff)
+        s_s = self.Sensor.radiant_sens() * sens_coeff
+        outstring = outstring + 'Sensitivity integrated across LED spectrum = {:3}'.format(s_s)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return s_s
+        
+    def pixel_response(self, D = None, printans = False, returnstring = False):
+        if D is None : D = self.D_max
+        #spec_sens = self.spectrum_sens()
+        p_r = self.spectrum_sens() * self.t_int * self.flux_pixel(D)
+        #p_r.ito('m^2/W')
+        p_r.ito_base_units()        
+        outstring = "Pixel response = {:.3} bits".format(p_r.magnitude)
         if printans:
             print(outstring)
         if returnstring:
@@ -434,26 +453,18 @@ class Sensor:
             out['y'].append(out['y'][-1]+multsens(i))
         #print(out['x'])
         return out
-            
-    def spectrum_sens(self, led: LED, printans=False, returnstring = False):
+    
+    def radiant_sens(self, printans=False, returnstring = False):
         #Pixel sensitivity is quoted in bits per lux*s
-        radiant_sens = self.pixel_sens*self.Q_(683,'lumen/W') #1 W = 683 lumen
-        radiant_sens.ito_reduced_units()
-        outstring = "Pixel sensitivity to radian flux = {:3}s\n".format(radiant_sens)
-        #Integrate actoss LED spectrum, pixel sensitivity, and filter
-        lambdas = range(max(led.outspeclambda[0],self.sensitivitylambda[0]),self.filter_cut.magnitude)
-        sens_spectrum = [self.filter_pass * led.outspecnorm[led.outspeclambda.tolist().index(l)]
-                                          * self.sensitivity[self.sensitivitylambda.tolist().index(l)]
-                         for l in lambdas]
-        sens_coeff = sum(sens_spectrum)
-        print(sens_coeff)
-        s_s = radiant_sens*sens_coeff
+        r_s = self.pixel_sens*self.Q_(683,'lumen/W') #1 W = 683 lumen
+        r_s.ito('m^2/(W*s)')
+        outstring = "Pixel sensitivity to radian flux = {:3}s\n".format(r_s)
         if printans:
             print(outstring)
         if returnstring:
             return outstring
         else:
-            return s_s
+            return r_s            
             
      
 class LIDARsummary(ttk.Frame):
@@ -676,33 +687,41 @@ class LIDARsummary(ttk.Frame):
         self.update()
         
 class LIDARwork(ttk.Frame):
-    outimagemethods = ('pixel_response')
+    outlidarmethods = ['flux_pixel','spectrum_sens','pixel_response']
+    outledmethods = ['flux_radiant']
+    outsensormethods = ['radiant_sens']
     def __init__(self,parent,lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
         self.grid(row=0, column = 0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
         self.lidar = lidar_optic
         self.ureg = lidar_optic.ureg
         self.Q_ = lidar_optic.Q_
         self.U_ = lidar_optic.U_
+        self.outboxes = {'System Properties': [self.outlidarmethods, self.lidar],
+                         'LED Properties': [self.outledmethods, self.lidar.LED],
+                         'Sensor Properties': [self.outsensormethods, self.lidar.Sensor]}
         self.initialize()
         
     def initialize(self):
         self.grid(column = 0, row = 0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)
         self.columnconfigure(0, weight=1)
         #Put all frames in a dictionary to keep track
-        self.frames = dict()
-        self.outimagevars = dict()
-        self.frames['LEDcalc'] = ttk.Labelframe(self, text = 'LED Spectrum Calculations')
+        self.outframes = dict()
+        self.outvars = dict()
+        self.graphframe = ttk.Labelframe(self, text = 'LED Spectrum Calculations')
+        self.graphframe.grid(row = 0, column = 0, sticky='nsew', rowspan = 3)
         #self.frames['Sensorcalc'] = ttk.Labelframe(self, text = 'Image Sensor Sensitivity Calculations')        
-        self.frames['Sensorcalc'] = Outbox(self,'Image Sensor Sensitivity Calculations',self.outimagemethods,self.outimagevars)
-        #Stick frames on grid
+        #self.frames['Sensorcalc'] = Outbox(self,'Image Sensor Sensitivity Calculations',self.outsensormethods,self.outimagevars)
+        #self.frames['Intercalc'] = ttk.Frame(self)        
+        ### Generate output frames and stick frames on grid
         i = 0
-        for f in self.frames.keys():
-            self.frames[f].grid(row = 0, column = i, sticky='nsew')
+        for key in self.outboxes.keys():
+            self.outvars[key] = dict()
+            self.outframes[key] = Outbox(self,key,self.outboxes[key][0],self.outvars[key])
+            self.outframes[key].grid(row = i, column = 1, sticky='nsew')
             i = i+1
-        
+        self.update_outputs()
         ###Set up LEDcalc frame
         #Set up matplotlib figure
         self.LEDfig = plt.figure()
@@ -712,16 +731,12 @@ class LIDARwork(ttk.Frame):
         self.ax_SensIntegral = self.LEDfig.add_subplot(4,1,3)
         self.ax_lum = self.LEDfig.add_subplot(4,1,4)
         #Import matplotlib figure to tk frame
-        self.LED_graph_canvas = FigureCanvasTkAgg(self.LEDfig,self.frames['LEDcalc'])
+        self.LED_graph_canvas = FigureCanvasTkAgg(self.LEDfig,self.graphframe)
         #self.graph_canvas = FigureCanvasTkAgg(self.fig,self)
         self.LED_graph_canvas.get_tk_widget().grid(column = 0, row = 0, sticky='nsew')
-        self.frames['LEDcalc'].rowconfigure(0, weight=1)
-        self.frames['LEDcalc'].columnconfigure(0, weight=1)
-        self.plotLED()
-        
-        
-
-        
+        self.graphframe.rowconfigure(0, weight=1)
+        self.graphframe.columnconfigure(0, weight=1)
+        self.plotLED()        
 
     def plotLED(self):
         self.ax_LED.clear()
@@ -743,10 +758,14 @@ class LIDARwork(ttk.Frame):
         self.ax_lum.set_xlim(self.ax_LED.get_xlim())
         self.ax_lum.set_title('Luminosity function (normalized) vs wavelength')
         self.ax_lum.set_xlabel('Wavelength (nm)')
-        
-        
+            
         self.LED_graph_canvas.draw()
         self.update()
+
+    def update_outputs(self):
+        for key in self.outboxes.keys():
+            for meth in self.outboxes[key][0]:
+                self.outvars[key][meth].set(getattr(self.outboxes[key][1],meth)(returnstring = True))
         
 class LIDARGUI(tk.Tk):    
     def __init__(self, lidar_optic, *args, **kwargs):
