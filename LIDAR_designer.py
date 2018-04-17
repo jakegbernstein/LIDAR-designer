@@ -15,6 +15,7 @@ import numpy as np
 import tkinter as tk
 from tkinter import ttk
 import json
+import re
 
 ### Have to be careful to only have one unit registry for pint
 if not (('pint' in locals()) or ('pint' in globals())):
@@ -39,7 +40,7 @@ dp['D_min'] = (.6,'m')
 #dp['lumfn_eff'] = (.2,'')
 #dp['LED_Vref'] = (3.1,'volt')
 #dp['LED_Iref'] = (0.350,'amp')
-#dp['LED_Poutref'] = (39.8,'lumen')
+#dp['LED_flux_luminous'] = (39.8,'lumen')
 dp['LED_spotsize'] = (2,'degrees')
 dp['albedo'] = (0.25,'')
 dp['pixel_w'] = (20,'micrometer')
@@ -50,7 +51,7 @@ dp['pixel_sens'] = (150e3,'1/(lux*s)')
 dp['t_int'] = (1,'ms')
 dp['nu_max'] = (0.1,'1/s')
 dp['v_max'] = (0.5,'m/s')
-
+dp['fps'] = (10,'1/s')
 
 LED_partnums = ('CXA1820','CXA1830','Custom')
 Sensor_partnums = ('epc660','Custom')
@@ -59,8 +60,8 @@ luminosityfile = 'luminosity_spectrum.json'
 sensitivityfile = 'epc660_sensitivity.json'
 
 
-outopticsmethods = ('hyperfocal','dnear','blur_defocus','blur_rotation','loss_geometric')
-outpowermethods = ()
+outopticsmethods = ('arrayFoV','hyperfocal','dnear','blur_defocus','blur_rotation')
+outpowermethods = ('input_power','pixel_response')
 outdatamethods = ()
 outmethods = (outopticsmethods,outpowermethods,outdatamethods)
 
@@ -80,7 +81,7 @@ class LIDARoptics:
 #            lumfn = .2 * U_(''), # luminosity function value at LED_lambda
 #            LED_Vref = 3.1 * U_('volt'), # Input voltage at datasheet reference
 #            LED_Iref = 0.350 * U_('amp'), # Input current at datasheet reference
-#            LED_Poutref = 39.8 * U_('lumen'), # Optical power output at datasheet reference
+#            LED_flux_luminous = 39.8 * U_('lumen'), # Optical power output at datasheet reference
 #            LED_spotsize = 2 * U_('degrees'), # Spot size of each LED
 #            albedo = 0.25 * U_(''), # reflectivity of cave wall                
 #            # Image Sensor Parameters (epc660)
@@ -103,7 +104,7 @@ class LIDARoptics:
 #        self.lumfn = lumfn
 #        self.LED_Vref = LED_Vref
 #        self.LED_Iref = LED_Iref
-#        self.LED_Poutref = LED_Poutref
+#        self.LED_flux_luminous = LED_flux_luminous
 #        self.LED_spotsize = LED_spotsize
 #        self.albedo = albedo
 #        self.pixel_w = pixel_w
@@ -149,8 +150,10 @@ class LIDARoptics:
     ## f = focal length of lens
 
     def arrayFoV(self, printans=False, returnstring=False):
+        #array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*self.U_('radian')
         array_FoV = 2*atan(self.array_active[0]*self.pixel_w/(2*self.f))*self.U_('radian')
-        outstring = "Image Sensor Field of View = %.3f degrees".format(degrees(array_FoV))
+        outstring = "Image Sensor Field of View = {:.3f} by {:.3f}s".format(array_FoV.to('degrees').magnitude,
+                                                  array_FoV.to('degrees')*self.array_active[1]/self.array_active[0])
         if printans:
             print(outstring)
         if returnstring:
@@ -160,7 +163,7 @@ class LIDARoptics:
     
     def pixelFoV(self, printans=False, returnstring=False):
         pixel_FoV = 2*atan(self.pixel_w/(2*self.f))*self.U_('radian')
-        outstring = "Single Pixel Field of View = %.3f degrees".format(degrees(pixel_FoV))
+        outstring = "Single Pixel Field of View = {:.3f} degrees".format(pixel_FoV.to('degrees'))
         if printans:
             print(outstring)
         if returnstring:
@@ -265,28 +268,31 @@ class LIDARoptics:
             return lg
         
      # Illumination will spread out w/ same FOV as lens, so spots imaged by each pixel will receive constant illumination.
-    def pixel_response(self, D = None, printans=False, returnstring=False):
+    def flux_pixel(self, D = None, printans=False, returnstring=False):
         if D is None : D = self.D_max
-        #illum_spot = self.LED_Poutref/(self.array_active[0]*self.array_active[1])
-        illum_spot = self.LED.Poutref*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
-        illum_spot.ito(self.U_('lumen'))
-        illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)        
-        flux_pixel = illum_pixel/(self.pixel_w)**2
-        flux_pixel.ito(self.U_('lux'))
-        #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
-        bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
-        bits_per_pixel_per_watt.ito(1/(self.U_('W*ms')))
+        #illum_spot = self.LED_flux_luminous/(self.array_active[0]*self.array_active[1])
+        illum_spot = self.LED.flux_radiant()*(pi/4)*((self.pixelFoV()/self.LED_spotsize).to_base_units())**2
+        illum_spot.ito('W')
+        print(illum_spot)
+        illum_pixel = self.albedo*illum_spot*self.loss_geometric(D)
+        print(illum_pixel)        
+        f_p = illum_pixel/(self.pixel_w)**2
+        f_p.ito('W/m^2')
+        print(f_p)
+#        #bits_per_pixel_per_watt = pixel_sens*flux_pixel*t_int*pixel_lambdacorrection/LED_Pinref
+#        bits_per_pixel_per_watt = self.pixel_sens*flux_pixel*self.pixel_lambdacorrection()/self.LED_Pinref()
+#        bits_per_pixel_per_watt.ito(1/(self.U_('W*ms')))
         outstring = "Illumination per spot imaged by each pixel = {:.3e}s\n".format(illum_spot)
         outstring = outstring + "Illumination per pixel at {}s = {:.3e}s\n".format(D,illum_pixel)
-        outstring = outstring + "Radiant flux per pixel at {}s = {:.3e}\n".format(D,flux_pixel)
-        outstring = outstring + "Bits per pixel/LED input energy at {}s= {:.2f}".format(D, bits_per_pixel_per_watt)
+        outstring = outstring + "Radiant flux per pixel at {}s = {:.3e}\n".format(D,f_p)
+#        outstring = outstring + "Bits per pixel/LED input energy at {}s= {:.2f}".format(D, bits_per_pixel_per_watt)
         if printans:
             print(outstring)
         if returnstring:
             return outstring
         else:
-            return bits_per_pixel_per_watt
-    
+            return f_p
+        
     def res_lat(self, D, s = None, printans=False, returnstring=False):
         b = self.blur_defocus(D, s)
         if b['pixel'] > 1:
@@ -300,10 +306,37 @@ class LIDARoptics:
             return outstring
         else:
             return res
+        
+    def input_power(self, printans=False, returnstring=False):
+        p_max = self.LED.Vref * self.LED.Iref 
+        p_max.ito('W')
+        p_avg = p_max * self.fps * self.t_int
+        p_avg.ito('W')
+        outstring = "LED instantaneous input power = {:.3f}s\n".format(p_max)
+        outstring = outstring + "LED average input power = {:.3f}s".format(p_avg)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return p_avg
+        
+    def pixel_response(self, printans = False, returnstring = False):
+        spec_sens = self.Sensor.spectrum_sens(self.LED)
+        p_r = spec_sens*self.t_int
+        p_r.ito_reduced_units()
+        print(p_r)
+        outstring = "Pixel response = {:.3}".format(p_r)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return p_r
    
 class LED:
     def __init__(self, ureg,
-                 partnum = None):
+                 partnum=None, Iref=None, Tref=None, Vref=None, flux_luminous=None, outspecfile=None):
         if (partnum == None) or (partnum not in LED_partnums):
             self.partnum = LED_partnums[0]
         else:
@@ -313,6 +346,11 @@ class LED:
         self.ureg = ureg
         self.Q_ = self.ureg.Quantity
         self.U_ = self.ureg.parse_expression
+        self.Iref = Iref
+        self.Vref = Vref
+        self.Tref = Tref
+        self.flux_luminous = flux_luminous
+        self.outspecfile = outspecfile
         self.load_LED()
         
     def load_LED(self):
@@ -337,21 +375,38 @@ class LED:
         self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
         self.lumfn_eff = np.sum(self.outspecnorm*
                                 self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])*self.U_('')
+        
+    def flux_radiant(self, printans = False, returnstring = False):
+        f_r = self.flux_luminous*self.U_('W/lumen')/(683*self.lumfn_eff)
+        outstring = "LED Radiant Flux = {}".format(f_r)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return f_r
+        
+
+        
+        
     
 class Sensor:
-    def __init__(self, ureg, partnum = None):
+    def __init__(self, ureg, partnum = None, filter_cut=None, filter_pass=None, pixel_sens=None):
         if (partnum == None) or (partnum not in Sensor_partnums):
             self.partnum = Sensor_partnums[0]
         else:
             self.partnum = partnum
-        print(self.partnum)
+        #print(self.partnum)
         self.ureg = ureg
         self.Q_ = self.ureg.Quantity
         self.U_ = self.ureg.parse_expression
+        self.filter_cut = filter_cut
+        self.filter_pass = filter_pass
+        self.pixel_sens = pixel_sens
         self.load_Sensor()
         
     def load_Sensor(self):
-        print(self.partnum)
+        #print(self.partnum)
         self.specfilename = self.partnum+'.json'
         with open(datadir+self.specfilename) as specfile:
             tempspec = json.load(specfile)
@@ -380,10 +435,30 @@ class Sensor:
         #print(out['x'])
         return out
             
+    def spectrum_sens(self, led: LED, printans=False, returnstring = False):
+        #Pixel sensitivity is quoted in bits per lux*s
+        radiant_sens = self.pixel_sens*self.Q_(683,'lumen/W') #1 W = 683 lumen
+        radiant_sens.ito_reduced_units()
+        outstring = "Pixel sensitivity to radian flux = {:3}s\n".format(radiant_sens)
+        #Integrate actoss LED spectrum, pixel sensitivity, and filter
+        lambdas = range(max(led.outspeclambda[0],self.sensitivitylambda[0]),self.filter_cut.magnitude)
+        sens_spectrum = [self.filter_pass * led.outspecnorm[led.outspeclambda.tolist().index(l)]
+                                          * self.sensitivity[self.sensitivitylambda.tolist().index(l)]
+                         for l in lambdas]
+        sens_coeff = sum(sens_spectrum)
+        print(sens_coeff)
+        s_s = radiant_sens*sens_coeff
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return s_s
+            
      
 class LIDARsummary(ttk.Frame):
-    param_names = ('f','N','nu_max','t_int','LED_spotsize')
-    param_LED = ('Iref','Vref','Poutref','lumfn_eff')
+    param_names = ('f','N','nu_max','t_int','fps','LED_spotsize','array_active')
+    param_LED = ('Iref','Vref','flux_luminous','lumfn_eff')
     param_Sensor = ('pixel_sens','filter_cut','filter_pass')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
@@ -448,13 +523,13 @@ class LIDARsummary(ttk.Frame):
             templabel.grid(column=2, row=j)
             self.LEDwidgets[key] = ttk.Entry(self.LED_frame, textvariable = self.LEDvars[key])
             self.LEDwidgets[key].grid(column =1, row=j)
-        self.LED_frame.grid(column=0, row = i, columnspan=3)
+        self.LED_frame.grid(column=0, row = i+1, columnspan=3)
         self.changeLED('')
         
         # Make Sensor info input box
         self.Sensor_frame = ttk.Labelframe(self.in_frame,text='Sensor Parameters',padding=5)
         self.Sensorvar = tk.StringVar(self)
-        self.LEDvar.set(self.lidar.Sensor.partnum)
+        self.Sensorvar.set(self.lidar.Sensor.partnum)
         templabel = ttk.Label(self.Sensor_frame, text='Sensor partnum:')
         templabel.grid(column=0, row=0)
         self.Sensor_choice = ttk.Combobox(self.Sensor_frame, textvariable=self.Sensorvar)
@@ -475,7 +550,7 @@ class LIDARsummary(ttk.Frame):
             templabel.grid(column=2, row=j)
             self.Sensorwidgets[key] = ttk.Entry(self.Sensor_frame, textvariable = self.Sensorvars[key])
             self.Sensorwidgets[key].grid(column=1, row=j)
-        self.Sensor_frame.grid(column=0,row=i+1,columnspan=3)
+        self.Sensor_frame.grid(column=0,row=i+2,columnspan=3)
         self.changeSensor('')
         
         # Make buttons
@@ -525,8 +600,16 @@ class LIDARsummary(ttk.Frame):
 
     def update_design(self):
         for key in self.param_names:
-            setattr(self.lidar, key, float(self.entryvars[key].get()) * getattr(self.lidar,key).units)
+            #setattr(self.lidar, key, float(self.entryvars[key].get()) * getattr(self.lidar,key).units)
+            stringval = self.entryvars[key].get()
+            stringvallist = re.findall('[\d.]+',stringval)
+            if len(stringvallist) == 1:
+                numval = float(stringvallist[0])
+            else:
+                numval = [float(val) for val in stringvallist]
+            setattr(self.lidar, key, numval * getattr(self.lidar,key).units)
             print(getattr(self.lidar,key))
+        self.update_outputs()
         self.plotresults()
         
     def changeLED(self,event):
@@ -645,18 +728,20 @@ class LIDARwork(ttk.Frame):
         self.ax_lum.clear()
         
         self.ax_LED.plot(self.lidar.LED.outspeclambda, self.lidar.LED.outspecnorm)
-        self.ax_LED.set_ylabel('LED output spectrum (normalized)')
+        self.ax_LED.set_title('LED output spectrum (normalized) vs wavelength')
+        
         
         self.ax_Sensor.plot(self.lidar.Sensor.sensitivitylambda, self.lidar.Sensor.sensitivity)
-        self.ax_Sensor.set_ylabel('Sensitivity of Image Sensor (normalized)')
+        self.ax_Sensor.set_title('Sensitivity of Image Sensor (normalized) vs wavelength')
         self.ax_lum.set_xlim(self.ax_LED.get_xlim())
         
         sensintegral = self.lidar.Sensor.sensCDF(self.lidar.LED)
         self.ax_SensIntegral.plot(sensintegral['x'],np.array(sensintegral['y'])/max(sensintegral['y']))
+        self.ax_SensIntegral.set_title('CDF of LED Output x Sensor Sensitivity')
         
         self.ax_lum.plot(self.lidar.LED.lumfnlambda, self.lidar.LED.lumfnarray)
         self.ax_lum.set_xlim(self.ax_LED.get_xlim())
-        self.ax_lum.set_ylabel('Luminosity function (normalized)')
+        self.ax_lum.set_title('Luminosity function (normalized) vs wavelength')
         self.ax_lum.set_xlabel('Wavelength (nm)')
         
         

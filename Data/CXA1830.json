@@ -1,1 +1,1 @@
-{"outspecfile": "CXA_5K_spectrum.json", "Iref": [800, "mA"], "Poutref": [4158, "lumen"], "Tref": [25, "degC"], "Vref": [37.5, "V"]}
+{"outspecfile": "CXA_5K_spectrum.json", "Iref": [800, "mA"], "flux_luminous": [4158, "lumen"], "Tref": [25, "degC"], "Vref": [37.5, "V"]}
