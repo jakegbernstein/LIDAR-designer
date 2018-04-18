@@ -41,10 +41,10 @@ dp['D_min'] = (.6,'m')
 #dp['LED_Vref'] = (3.1,'volt')
 #dp['LED_Iref'] = (0.350,'amp')
 #dp['LED_flux_luminous'] = (39.8,'lumen')
-dp['LED_spotsize'] = (2,'degrees')
+dp['LED_spotsize'] = (30,'degrees')
 dp['albedo'] = (0.25,'')
 dp['pixel_w'] = (20,'micrometer')
-dp['array_size'] = ([320,240],'')
+#dp['array_size'] = ([320,240],'')
 dp['array_active'] = ([320,240],'')
 dp['pixel_relsens'] = (0.25,'')
 dp['pixel_sens'] = (150e3,'1/(lux*s)')
@@ -62,7 +62,7 @@ sensitivityfile = 'epc660_sensitivity.json'
 
 outopticsmethods = ['arrayFoV','hyperfocal','dnear','blur_defocus','blur_rotation']
 outpowermethods = ['input_power','pixel_response','LED_efficiency']
-outdatamethods = []
+outdatamethods = ['data_rate']
 outmethods = (outopticsmethods,outpowermethods,outdatamethods)
 
 specrange = 1001 #Length of arrays containing spectral data
@@ -374,7 +374,19 @@ class LIDARoptics:
         else:
             return L_e_filt
                 
-   
+    def data_rate(self, printans = False, returnstring = False):
+        d_r = self.fps * self.Sensor.bits_per_pixel * np.array(self.array_active).prod()
+        d_r.ito('kilobyte/s')
+        outstring = "Image Sensor data rate = {:.3}\n".format(d_r)
+        outstring = outstring + "Image Sensor data rate = {:.3}".format(d_r.to('gigabyte/hour'))
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return d_r
+
+    
 class LED:
     def __init__(self, ureg,
                  partnum=None, Iref=None, Tref=None, Vref=None, flux_luminous=None, outspecfile=None):
