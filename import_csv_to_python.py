@@ -8,10 +8,15 @@ Created on Fri Apr 13 14:05:44 2018
 datadir = './Data/'
 #infilename = 'CXA1820_spectrum.csv'
 #outfilename = 'CXA1820_spectrum.json'
+
 #infilename = 'linCIE2008v2e_1.csv'
 #outfilename = 'luminosity_spectrum.json'
-infilename = 'epc660_sensitivity.csv'
-outfilename = 'epc660_sensitivity.json'
+
+#infilename = 'epc660_sensitivity.csv'
+#outfilename = 'epc660_sensitivity.json'
+
+infilename = 'XB-D_Blue_spectrum.csv'
+outfilename = 'XB-D_Blue_spectrum.json'
 
 import csv
 import json

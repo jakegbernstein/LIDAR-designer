@@ -53,7 +53,7 @@ dp['nu_max'] = (0.1,'1/s')
 dp['v_max'] = (0.5,'m/s')
 dp['fps'] = (10,'1/s')
 
-LED_partnums = ('CXA1820','CXA1830','Custom')
+LED_partnums = ('XB-D_blue','CXA1820','CXA1830','Custom')
 Sensor_partnums = ('epc660','Custom')
 datadir = './Data/'
 luminosityfile = 'luminosity_spectrum.json'
@@ -363,7 +363,7 @@ class LIDARoptics:
         out_eff = self.LED.flux_radiant() / self.LED.power_in() 
         spec_eff = self.LED.outspecnorm * self.Sensor.sensitivity
         L_e_nofilt =  out_eff * np.sum(spec_eff)
-        L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff[round(self.Sensor.filter_cut.magnitude): ])
+        L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff[ : round(self.Sensor.filter_cut.magnitude)])
         outstring = "LED radiant efficiency = {:.3}\n".format(out_eff.magnitude)
         outstring = outstring + "LED-to-sensor efficiency without filter = {:.3}\n".format(L_e_nofilt.magnitude)
         outstring = outstring + "LED-to-sensor efficiency including filter = {:.3}".format(L_e_filt.magnitude)
