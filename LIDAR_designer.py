@@ -60,10 +60,12 @@ luminosityfile = 'luminosity_spectrum.json'
 sensitivityfile = 'epc660_sensitivity.json'
 
 
-outopticsmethods = ('arrayFoV','hyperfocal','dnear','blur_defocus','blur_rotation')
-outpowermethods = ('input_power','pixel_response')
-outdatamethods = ()
+outopticsmethods = ['arrayFoV','hyperfocal','dnear','blur_defocus','blur_rotation']
+outpowermethods = ['input_power','pixel_response','LED_efficiency']
+outdatamethods = []
 outmethods = (outopticsmethods,outpowermethods,outdatamethods)
+
+specrange = 1001 #Length of arrays containing spectral data
 
 class LIDARoptics:
 
@@ -308,12 +310,11 @@ class LIDARoptics:
             return res
         
     def input_power(self, printans=False, returnstring=False):
-        p_max = self.LED.Vref * self.LED.Iref 
-        p_max.ito('W')
+        p_max = self.LED.power_in()       
         p_avg = p_max * self.fps * self.t_int
         p_avg.ito('W')
-        outstring = "LED instantaneous input power = {:.3f}s\n".format(p_max)
-        outstring = outstring + "LED average input power = {:.3f}s".format(p_avg)
+        #outstring = "LED instantaneous input power = {:.3f}s\n".format(p_max)
+        outstring = "System average input power = {:.3f}s".format(p_avg)
         if printans:
             print(outstring)
         if returnstring:
@@ -323,10 +324,15 @@ class LIDARoptics:
         
     def spectrum_sens(self, printans=False, returnstring = False):        
         #Integrate actoss LED spectrum, pixel sensitivity, and filter
-        lambdas = range(max(self.LED.outspeclambda[0],self.Sensor.sensitivitylambda[0]),self.Sensor.filter_cut.magnitude)
-        sens_spectrum = [self.Sensor.filter_pass * self.LED.outspecnorm[self.LED.outspeclambda.tolist().index(l)]
-                                          * self.Sensor.sensitivity[self.Sensor.sensitivitylambda.tolist().index(l)]
-                         for l in lambdas]
+        #lambdas = range(max(self.LED.outspeclambda[0],self.Sensor.sensitivitylambda[0]),self.Sensor.filter_cut.magnitude)
+        #sens_spectrum = [self.Sensor.filter_pass * self.LED.outspecnorm[self.LED.outspeclambda.tolist().index(l)]
+        #                                  * self.Sensor.sensitivity[self.Sensor.sensitivitylambda.tolist().index(l)]
+        #                 for l in lambdas]
+        sens_spectrum = self.Sensor.filter_pass * self.Sensor.sensitivity * self.LED.outspecnorm
+        #sens_spectrum = sens_spectrum.magnitude
+        #print(sens_spectrum)
+        #print(self.Sensor.filter_cut)
+        sens_spectrum[self.Sensor.filter_cut.magnitude: ] = 0
         sens_coeff = sum(sens_spectrum)
         outstring = 'Sensitivity coefficient = {:.3}\n'.format(sens_coeff)
         #print(sens_coeff)
@@ -352,6 +358,22 @@ class LIDARoptics:
             return outstring
         else:
             return p_r
+        
+    def LED_efficiency(self, printans = False, returnstring = False):
+        out_eff = self.LED.flux_radiant() / self.LED.power_in() 
+        spec_eff = self.LED.outspecnorm * self.Sensor.sensitivity
+        L_e_nofilt =  out_eff * np.sum(spec_eff)
+        L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff[round(self.Sensor.filter_cut.magnitude): ])
+        outstring = "LED radiant efficiency = {:.3}\n".format(out_eff.magnitude)
+        outstring = outstring + "LED-to-sensor efficiency without filter = {:.3}\n".format(L_e_nofilt.magnitude)
+        outstring = outstring + "LED-to-sensor efficiency including filter = {:.3}".format(L_e_filt.magnitude)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return L_e_filt
+                
    
 class LED:
     def __init__(self, ureg,
@@ -360,8 +382,9 @@ class LED:
             self.partnum = LED_partnums[0]
         else:
             self.partnum = partnum
-        with open(datadir+luminosityfile) as lumfile:
-            self.lumfn = json.load(lumfile)
+        #with open(datadir+luminosityfile) as lumfile:
+        #    self.lumfn = json.load(lumfile)
+        self.lumfn = load_spectral_json(datadir+luminosityfile)
         self.ureg = ureg
         self.Q_ = self.ureg.Quantity
         self.U_ = self.ureg.parse_expression
@@ -382,31 +405,45 @@ class LED:
                 setattr(self,spec,self.Q_(tempspec[spec][0],tempspec[spec][1]))
             else:
                 setattr(self,spec,tempspec[spec])
-        with open(datadir+self.outspecfile) as outspecfile:
-            self.outspec = json.load(outspecfile)
+        ### Old spectrum data structure and methods: separate arrays for x and y                
+        #with open(datadir+self.outspecfile) as outspecfile:
+        #    self.outspec = json.load(outspecfile)
         #Normalize output spectrum to integrate to 1
-        self.outspecnorm = np.asarray(self.outspec['y'])
-        self.outspecnorm = self.outspecnorm/np.sum(self.outspecnorm)
-        self.outspeclambda = np.asarray(self.outspec['x'],dtype=int)
+        #self.outspecnorm = np.asarray(self.outspec['y'])
+        #self.outspecnorm = self.outspecnorm/np.sum(self.outspecnorm)
+        #self.outspeclambda = np.asarray(self.outspec['x'],dtype=int)
         #Match luminosity function range to LED output spectrum
-        self.lumfnlambda = np.asarray(self.lumfn['x'],dtype=int)
-        self.lumfnarray  = np.asarray(self.lumfn['y'])
-        self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
-        self.lumfn_eff = np.sum(self.outspecnorm*
-                                self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])*self.U_('')
+        #self.lumfnlambda = np.asarray(self.lumfn['x'],dtype=int)
+        #self.lumfnarray  = np.asarray(self.lumfn['y'])
+        #self.lumfnlambdaoffset = self.lumfnlambda.tolist().index(self.outspeclambda[0])
+        #self.lumfn_eff = np.sum(self.outspecnorm*
+        #                        self.lumfnarray[self.lumfnlambdaoffset+np.arange(len(self.outspecnorm))])*self.U_('')
+        
+        ### New spectrum data structure and methods: array indexed to wavelength
+        self.outspec = load_spectral_json(datadir+self.outspecfile)
+        self.outspecnorm = self.outspec/self.outspec.sum()
+        self.lumfn_eff = np.sum(self.outspecnorm*self.lumfn)*self.U_('')
         
     def flux_radiant(self, printans = False, returnstring = False):
         f_r = self.flux_luminous*self.U_('W/lumen')/(683*self.lumfn_eff)
-        outstring = "LED Radiant Flux = {}".format(f_r)
+        outstring = "LED Radiant Flux = {:.3}s".format(f_r)
         if printans:
             print(outstring)
         if returnstring:
             return outstring
         else:
             return f_r
-        
-
-        
+                
+    def power_in(self, printans = False, returnstring = False):
+        p_in = self.Iref * self.Vref
+        p_in.ito('W')
+        outstring = "LED Instantaneous Input Power = {:.3}s".format(p_in)
+        if printans:
+            print(outstring)
+        if returnstring:
+            return outstring
+        else:
+            return p_in
         
     
 class Sensor:
@@ -434,24 +471,32 @@ class Sensor:
                 setattr(self,spec,self.Q_(tempspec[spec][0],tempspec[spec][1]))
             else:
                 setattr(self,spec,tempspec[spec])
-        with open(datadir+self.sensitivityfilename) as sensitivityfile:
-            self.sensitivityspec = json.load(sensitivityfile)
-        self.sensitivity = np.asarray(self.sensitivityspec['y'])
-        self.sensitivitylambda = np.asanyarray(self.sensitivityspec['x'],dtype=int)
+        ###Old data structure for spectral data        
+        #with open(datadir+self.sensitivityfilename) as sensitivityfile:
+        #    self.sensitivityspec = json.load(sensitivityfile)
+        #self.sensitivity = np.asarray(self.sensitivityspec['y'])
+        #self.sensitivitylambda = np.asanyarray(self.sensitivityspec['x'],dtype=int)
+        ###New spectral data structure
+        self.sensitivity = load_spectral_json(datadir+self.sensitivityfilename)
         
     def sensCDF(self, led):
-        lambdarange = [max(self.sensitivitylambda[0],led.outspeclambda[0]),
-                       min(self.sensitivitylambda[-1],led.outspeclambda[-1])]
+        ###Old method
+        #lambdarange = [max(self.sensitivitylambda[0],led.outspeclambda[0]),
+        #               min(self.sensitivitylambda[-1],led.outspeclambda[-1])]
         #print(lambdarange)
-        multsens = lambda l: (self.sensitivity[self.sensitivitylambda.tolist().index(l)] *
-                               led.outspecnorm[led.outspeclambda.tolist().index(l)])
-        out = {'x': [lambdarange[0]], 
-               'y': [multsens(lambdarange[0])]}
-        for i in range(lambdarange[0]+1,lambdarange[1]+1):
-            #print(i)
-            out['x'].append(i)
-            out['y'].append(out['y'][-1]+multsens(i))
+        #multsens = lambda l: (self.sensitivity[self.sensitivitylambda.tolist().index(l)] *
+        #                       led.outspecnorm[led.outspeclambda.tolist().index(l)])
+        #out = {'x': [lambdarange[0]], 
+        #       'y': [multsens(lambdarange[0])]}
+        #for i in range(lambdarange[0]+1,lambdarange[1]+1):
+        #    #print(i)
+        #    out['x'].append(i)
+        #    out['y'].append(out['y'][-1]+multsens(i))
         #print(out['x'])
+        out = np.zeros(specrange)
+        for i in np.arange(1,specrange):
+            out[i] = out[i-1] + self.sensitivity[i]*led.outspecnorm[i]
+        out = out/out.max()
         return out
     
     def radiant_sens(self, printans=False, returnstring = False):
@@ -688,7 +733,7 @@ class LIDARsummary(ttk.Frame):
         
 class LIDARwork(ttk.Frame):
     outlidarmethods = ['flux_pixel','spectrum_sens','pixel_response']
-    outledmethods = ['flux_radiant']
+    outledmethods = ['power_in','flux_radiant']
     outsensormethods = ['radiant_sens']
     def __init__(self,parent,lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
@@ -742,20 +787,30 @@ class LIDARwork(ttk.Frame):
         self.ax_LED.clear()
         self.ax_lum.clear()
         
-        self.ax_LED.plot(self.lidar.LED.outspeclambda, self.lidar.LED.outspecnorm)
+        #self.ax_LED.plot(self.lidar.LED.outspeclambda, self.lidar.LED.outspecnorm)
+        self.ax_LED.plot(self.lidar.LED.outspecnorm)
+        self.ax_LED.set_xlim(400,800)
+        self.ax_LED.set_ylim(bottom=0)
         self.ax_LED.set_title('LED output spectrum (normalized) vs wavelength')
         
         
-        self.ax_Sensor.plot(self.lidar.Sensor.sensitivitylambda, self.lidar.Sensor.sensitivity)
+        #self.ax_Sensor.plot(self.lidar.Sensor.sensitivitylambda, self.lidar.Sensor.sensitivity)
+        self.ax_Sensor.plot(self.lidar.Sensor.sensitivity)
         self.ax_Sensor.set_title('Sensitivity of Image Sensor (normalized) vs wavelength')
-        self.ax_lum.set_xlim(self.ax_LED.get_xlim())
+        self.ax_Sensor.set_xlim(self.ax_LED.get_xlim())
+        self.ax_Sensor.set_ylim(bottom=0)
         
         sensintegral = self.lidar.Sensor.sensCDF(self.lidar.LED)
-        self.ax_SensIntegral.plot(sensintegral['x'],np.array(sensintegral['y'])/max(sensintegral['y']))
+        #self.ax_SensIntegral.plot(sensintegral['x'],np.array(sensintegral['y'])/max(sensintegral['y']))
+        self.ax_SensIntegral.plot(sensintegral/sensintegral.max())
         self.ax_SensIntegral.set_title('CDF of LED Output x Sensor Sensitivity')
+        self.ax_SensIntegral.set_xlim(self.ax_LED.get_xlim())
+        self.ax_SensIntegral.set_ylim(bottom=0)
         
-        self.ax_lum.plot(self.lidar.LED.lumfnlambda, self.lidar.LED.lumfnarray)
+        #self.ax_lum.plot(self.lidar.LED.lumfnlambda, self.lidar.LED.lumfnarray)
+        self.ax_lum.plot(self.lidar.LED.lumfn)
         self.ax_lum.set_xlim(self.ax_LED.get_xlim())
+        self.ax_lum.set_ylim(bottom=0)
         self.ax_lum.set_title('Luminosity function (normalized) vs wavelength')
         self.ax_lum.set_xlabel('Wavelength (nm)')
             
@@ -828,4 +883,11 @@ class Outbox(ttk.Labelframe):
             templabel.grid(column=0, row = i, sticky='nw')
             i = i+1
             
+def load_spectral_json(filepath):
+    with open(filepath) as file:
+        specdict = json.load(file)
+    file.close()
+    outarray = np.zeros(specrange)
+    outarray[np.array(specdict['x'], dtype=int)] = specdict['y']
+    return outarray
             
