@@ -58,6 +58,7 @@ Sensor_partnums = ('epc660','Custom')
 datadir = './Data/'
 luminosityfile = 'luminosity_spectrum.json'
 sensitivityfile = 'epc660_sensitivity.json'
+absorptionfile = 'WaterAbsorption.json'
 
 
 outopticsmethods = ['arrayFoV','hyperfocal','dnear','blur_defocus','blur_rotation']
@@ -129,6 +130,7 @@ class LIDARoptics:
                 
         self.LED = LED(self.ureg)
         self.Sensor = Sensor(self.ureg)
+        self.absorptionspectrum = load_spectral_json(datadir+absorptionfile)
             
         
         ### Calculate derived values for object attributes
@@ -269,6 +271,17 @@ class LIDARoptics:
         else:
             return lg
         
+    def loss_absorption(self, D = None, printans=False, returnstring=False):
+        if D is None: D = self.D_max
+        la = np.exp(-2*D*self.absorptionspectrum/self.U_('meter'))
+        la[la==1] = 0
+        if printans:
+            fig = plt.figure()
+            #tax = fig.axes()
+            plt.plot(la)
+        return la
+    
+        
      # Illumination will spread out w/ same FOV as lens, so spots imaged by each pixel will receive constant illumination.
     def flux_pixel(self, D = None, printans=False, returnstring=False):
         if D is None : D = self.D_max
@@ -322,13 +335,14 @@ class LIDARoptics:
         else:
             return p_avg
         
-    def spectrum_sens(self, printans=False, returnstring = False):        
+    def spectrum_sens(self, D = None, printans=False, returnstring = False):        
         #Integrate actoss LED spectrum, pixel sensitivity, and filter
         #lambdas = range(max(self.LED.outspeclambda[0],self.Sensor.sensitivitylambda[0]),self.Sensor.filter_cut.magnitude)
         #sens_spectrum = [self.Sensor.filter_pass * self.LED.outspecnorm[self.LED.outspeclambda.tolist().index(l)]
         #                                  * self.Sensor.sensitivity[self.Sensor.sensitivitylambda.tolist().index(l)]
         #                 for l in lambdas]
-        sens_spectrum = self.Sensor.filter_pass * self.Sensor.sensitivity * self.LED.outspecnorm
+        if D is None : D = self.D_max
+        sens_spectrum = self.Sensor.filter_pass * self.Sensor.sensitivity * self.LED.outspecnorm * self.loss_absorption(D)
         #sens_spectrum = sens_spectrum.magnitude
         #print(sens_spectrum)
         #print(self.Sensor.filter_cut)
@@ -348,7 +362,7 @@ class LIDARoptics:
     def pixel_response(self, D = None, printans = False, returnstring = False):
         if D is None : D = self.D_max
         #spec_sens = self.spectrum_sens()
-        p_r = self.spectrum_sens() * self.t_int * self.flux_pixel(D)
+        p_r = self.spectrum_sens(D) * self.t_int * self.flux_pixel(D)
         #p_r.ito('m^2/W')
         p_r.ito_base_units()        
         outstring = "Pixel response = {:.3} bits".format(p_r.magnitude)
@@ -359,14 +373,16 @@ class LIDARoptics:
         else:
             return p_r
         
-    def LED_efficiency(self, printans = False, returnstring = False):
+    def LED_efficiency(self, D = None, printans = False, returnstring = False):
+        if D is None: D = self.D_max
         out_eff = self.LED.flux_radiant() / self.LED.power_in() 
         spec_eff = self.LED.outspecnorm * self.Sensor.sensitivity
         L_e_nofilt =  out_eff * np.sum(spec_eff)
-        L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff[ : round(self.Sensor.filter_cut.magnitude)])
+        #L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff[ : round(self.Sensor.filter_cut.magnitude)])
+        L_e_filt = self.Sensor.filter_pass * out_eff * np.sum(spec_eff * self.loss_absorption(D))
         outstring = "LED radiant efficiency = {:.3}\n".format(out_eff.magnitude)
-        outstring = outstring + "LED-to-sensor efficiency without filter = {:.3}\n".format(L_e_nofilt.magnitude)
-        outstring = outstring + "LED-to-sensor efficiency including filter = {:.3}".format(L_e_filt.magnitude)
+        outstring = outstring + "LED-to-sensor efficiency without filter or absorption = {:.3}\n".format(L_e_nofilt.magnitude)
+        outstring = outstring + "LED-to-sensor efficiency including filter and absorption at {}= {:.3}".format(D,L_e_filt.magnitude)
         if printans:
             print(outstring)
         if returnstring:
@@ -530,6 +546,7 @@ class LIDARsummary(ttk.Frame):
     param_Sensor = ('pixel_sens','filter_cut','filter_pass')
     def __init__(self,parent, lidar_optic):
         ttk.Frame.__init__(self,parent,borderwidth=2, relief='solid')
+        self.parent = parent
         self.lidar = lidar_optic
         self.ureg = lidar_optic.ureg
         self.Q_ = lidar_optic.Q_
@@ -679,6 +696,12 @@ class LIDARsummary(ttk.Frame):
             print(getattr(self.lidar,key))
         self.update_outputs()
         self.plotresults()
+        try: 
+            self.parent.workframe.update_outputs()
+            self.parent.workframe.plotLED()
+        except:
+            print('No work window')
+                
         
     def changeLED(self,event):
         #print(event)
@@ -798,6 +821,8 @@ class LIDARwork(ttk.Frame):
     def plotLED(self):
         self.ax_LED.clear()
         self.ax_lum.clear()
+        self.ax_Sensor.clear()
+        self.ax_SensIntegral.clear()
         
         #self.ax_LED.plot(self.lidar.LED.outspeclambda, self.lidar.LED.outspecnorm)
         self.ax_LED.plot(self.lidar.LED.outspecnorm)
